@@ -10,17 +10,25 @@ OnChain Wealth is a DeFi portfolio tracking and management application built for
 
 ---
 
-## Current State (Phase 1 - Complete)
+## Current State (Phase 1 Complete + Phase 2 In Progress)
 
 ### What Works
 
-The Phase 1 foundation is fully implemented with the following capabilities:
+The Phase 1 foundation is complete, with Phase 2 historical portfolio features now functional.
 
 **Multi-Chain Portfolio Tracking**
 - 5 supported chains: Ethereum (1), Arbitrum (42161), Optimism (10), Base (8453), Polygon (137)
 - Real-time position fetching via protocol adapters
+- **NEW**: Live token balance fetching via GoldRush `balances_v2` API
 - Automatic USD value enrichment with price data
 - Portfolio aggregation by protocol and by chain
+- Total value uses `Math.max(tokenBalances, defiPositions)` for accuracy
+
+**Token Balance Integration (New)**
+- `src/server/services/balances.ts` fetches ALL token balances across chains
+- GoldRush API provides real-time USD quotes, logos, and decimals
+- Dust filtering: positions < $1 are hidden from display
+- Parallel fetching across all 5 chains with 15s timeout per chain
 
 **Protocol Adapters (8 implemented)**
 - Lido (staking)
@@ -31,6 +39,13 @@ The Phase 1 foundation is fully implemented with the following capabilities:
 - Morpho (lending)
 - EigenLayer (restaking)
 - Pendle (yield)
+
+**Historical Portfolio Chart (Phase 2 Feature - Working)**
+- Shows portfolio value over 7d/30d/90d/1y timeframes
+- Data interpolation for $0 gaps (anomaly detection: values < 30% of median)
+- `currentValue` parameter anchors final data point to live portfolio value
+- Progress indicator during data fetch (fetching balances -> fetching prices -> processing)
+- Y-axis starts from $0 for accurate visual representation
 
 **Technical Infrastructure**
 - Adapter pattern for easy protocol additions
@@ -54,6 +69,12 @@ The Phase 1 foundation is fully implemented with the following capabilities:
 - Position alerts (value change percentage)
 - Cooldown support to prevent alert spam
 - In-app notifications with real-time delivery
+
+**Dashboard UI (Overhauled)**
+- `TokenHoldings` component: displays all tokens with logos, chain badges, formatted balances
+- Reorganized layout: Holdings (primary, 2-col) -> Chains (sidebar) -> DeFi Positions (secondary)
+- Hydration mismatch fix: `mounted` state pattern for wallet connection state
+- `ChainDot` component with configurable `size` prop (sm/md/lg)
 
 ---
 
@@ -186,8 +207,8 @@ A detailed implementation plan (`PHASE_2_3_PLAN.md`) has been created covering:
 | Alchemy/Public RPCs | Blockchain data | Implemented |
 | Redis | Caching, pub/sub, job queues | Implemented |
 | PostgreSQL | Persistent storage | Implemented |
-| Covalent | Historical balances | Planned (Phase 2) |
-| DeFi Llama | Historical prices | Planned (Phase 2) |
+| GoldRush (Covalent) | Live token balances + Historical balances | **Implemented** |
+| DeFi Llama | Historical prices | **Implemented** |
 | Tenderly | TX simulation | Planned (Phase 2) |
 | 1inch Fusion | Swaps | Planned (Phase 3) |
 | Li.Fi | Bridging | Planned (Phase 3) |
@@ -196,7 +217,41 @@ A detailed implementation plan (`PHASE_2_3_PLAN.md`) has been created covering:
 
 ## Recent Evolution
 
-### January 21, 2025
+### January 21, 2025 (Session 2 - Major Feature Updates)
+
+**Historical Portfolio Chart Fixes:**
+- Fixed data interpolation for $0 gaps in chart data
+- Changed from exact zero check to anomaly detection (values < 30% of median)
+- Interpolation now applied to both cached and freshly-fetched data
+- Added `currentValue` parameter to anchor final data point to live portfolio value
+- Fixed Y-axis to start from $0 (was auto-scaling, hiding context)
+
+**Live Token Balance Integration:**
+- Created `src/server/services/balances.ts` for raw token balance fetching
+- Uses GoldRush (Covalent) `balances_v2` endpoint for comprehensive token coverage
+- Integrated into portfolio service: fetches both DeFi positions AND raw token balances in parallel
+- Total value calculation: `Math.max(tokenBalances, defiPositions)` ensures accuracy when one source is incomplete
+
+**Dashboard UI Overhaul:**
+- Created `TokenHoldings` component (`src/components/portfolio/token-holdings.tsx`)
+  - Token logos with fallback to initials
+  - Chain badge overlay on each token
+  - Smart balance formatting (M/K suffixes, scientific notation for tiny amounts)
+- Reorganized dashboard layout for clarity:
+  - Holdings section (primary, 2-column span)
+  - Chains distribution (sidebar)
+  - DeFi Positions (secondary, collapsed by default if empty)
+- Fixed hydration mismatch: added `mounted` state pattern for wallet connection UI
+
+**Bug Fixes:**
+- Fixed `getProgress` endpoint 500 errors (date serialization from Redis cache)
+- Added dust filtering: positions < $1 hidden from UI
+- Added `size` prop to `ChainDot` component for flexible sizing
+
+**Git Repository:**
+- Initialized git repo with comprehensive initial commit
+
+### January 21, 2025 (Session 1)
 - Completed Phase 2 & 3 planning document
 - Detailed implementation roadmap for Risk Intelligence and DeFi Actions
 - Architecture decisions documented for transaction simulation (Tenderly) and automation
@@ -240,7 +295,24 @@ A detailed implementation plan (`PHASE_2_3_PLAN.md`) has been created covering:
 
 4. **Error Boundaries**: Basic implementation - could use more granular error handling per component.
 
+5. **Token Logo Fallback**: When GoldRush logo URL fails, falls back to 2-letter initials - could use a token logo aggregator.
+
 ---
 
-*Document Version: 1.0*
+## Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `src/server/services/balances.ts` | GoldRush token balance fetching |
+| `src/server/services/portfolio.ts` | Portfolio aggregation (DeFi + tokens) |
+| `src/server/services/historical/index.ts` | Historical portfolio data with interpolation |
+| `src/server/routers/history.ts` | History API endpoints with date serialization |
+| `src/components/portfolio/token-holdings.tsx` | Token list UI component |
+| `src/components/portfolio/value-chart.tsx` | Portfolio chart with progress indicator |
+| `src/components/shared/chain-badge.tsx` | ChainBadge and ChainDot components |
+| `src/app/dashboard/page.tsx` | Main dashboard with hydration fix |
+
+---
+
+*Document Version: 1.1*
 *Last Updated: January 21, 2025*

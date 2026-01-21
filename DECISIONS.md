@@ -4,6 +4,129 @@ This document records significant architectural and technical decisions made dur
 
 ---
 
+## January 21, 2025 - Historical Data Interpolation Strategy
+
+**Context**: Historical portfolio charts were showing $0 values at certain timestamps where DeFi Llama didn't have price data for tokens. This created misleading visualizations showing dramatic drops to zero.
+
+**Options Considered**:
+1. **Exact Zero Check** - Only interpolate when value is exactly $0
+2. **Anomaly Detection** - Interpolate when value drops significantly below median
+3. **Forward Fill Only** - Simply carry forward the last known good value
+4. **Weighted Average** - Interpolate between surrounding good values
+
+**Decision**: Anomaly detection using 30% of median as threshold
+
+**Rationale**:
+- Exact zero check missed cases where only some tokens had prices (partial data)
+- A value < 30% of median indicates data quality issues, not real portfolio changes
+- Forward fill is simple and maintains visual continuity without inventing data
+- Backward fill handles leading edge cases (first few data points missing)
+- Adding `currentValue` parameter ensures the final data point matches live portfolio
+
+**Implementation**:
+```typescript
+const anomalyThreshold = medianValue * 0.3;
+// Forward pass: replace anomalous values with last good value
+// Backward pass: fill leading anomalies with first good value * 0.98
+```
+
+**Consequences**:
+- Charts now show smooth, realistic portfolio progression
+- Potential to mask real dramatic losses (acceptable trade-off for data quality issues)
+- Users see accurate current value anchored at chart end
+
+---
+
+## January 21, 2025 - Token Balance Source Strategy
+
+**Context**: Need to display accurate total portfolio value. DeFi adapters only capture protocol-specific positions, missing raw token holdings (e.g., ETH, USDC in wallet).
+
+**Options Considered**:
+1. **DeFi Positions Only** - Show only yield-bearing positions
+2. **Token Balances Only** - Use GoldRush for everything
+3. **Sum Both** - Add DeFi positions + token balances (risk: double counting)
+4. **Max of Both** - Use whichever source reports higher value
+
+**Decision**: Use `Math.max(tokenBalances, defiPositions)` for total value
+
+**Rationale**:
+- GoldRush's `balances_v2` includes most tokens (including yield tokens like weETH, aTokens)
+- DeFi adapters may catch positions GoldRush misses (new protocols, complex positions)
+- Taking max avoids double-counting while capturing the more complete picture
+- In practice, GoldRush is usually more comprehensive for "total holdings"
+
+**Implementation**:
+```typescript
+const totalValueUsd = Math.max(totalTokenValueUsd, totalDefiValueUsd);
+```
+
+**Consequences**:
+- Total value is always at least as high as either source
+- Chain breakdown uses token balances (to avoid double-counting)
+- DeFi positions still shown separately for yield/APY visibility
+
+---
+
+## January 21, 2025 - Dashboard Layout Hierarchy
+
+**Context**: Dashboard showed DeFi positions prominently, but most users care more about total holdings. Need clearer visual hierarchy.
+
+**Options Considered**:
+1. **Positions First** - DeFi positions as primary, tokens secondary
+2. **Holdings First** - Token holdings primary, positions secondary
+3. **Tabs** - Separate tabs for holdings vs. DeFi
+4. **Combined View** - Single unified list
+
+**Decision**: Holdings (primary) -> Chains (sidebar) -> DeFi Positions (secondary below)
+
+**Rationale**:
+- Token holdings represent "what you own" - most fundamental view
+- Chain distribution gives quick allocation overview
+- DeFi positions are specialized view for yield farmers
+- Progressive disclosure: most common use case first
+
+**Consequences**:
+- First-time users see clear portfolio breakdown immediately
+- DeFi-focused users need to scroll for detailed position info
+- Layout is responsive: holdings span 2 cols on desktop, chains in sidebar
+
+---
+
+## January 21, 2025 - Hydration Mismatch Fix Pattern
+
+**Context**: Dashboard showed hydration errors when wallet connection state differed between server and client render.
+
+**Options Considered**:
+1. **Dynamic Import** - Use next/dynamic with ssr: false
+2. **Mounted State** - Track when client has mounted
+3. **Suppress Warning** - Use suppressHydrationWarning
+4. **Server Components** - Move wallet-dependent UI to client components
+
+**Decision**: Mounted state pattern with deterministic server render
+
+**Rationale**:
+- Clean pattern that keeps component as single unit
+- Server always renders with `DEMO_WALLET` (deterministic)
+- Client switches to actual wallet after mount
+- No flash of incorrect content
+
+**Implementation**:
+```typescript
+const [mounted, setMounted] = useState(false);
+useEffect(() => { setMounted(true); }, []);
+
+const walletToView = mounted
+  ? (searchWallet || (isConnected ? address : undefined) || DEMO_WALLET)
+  : DEMO_WALLET;
+```
+
+**Consequences**:
+- No hydration warnings in console
+- Brief moment where demo wallet is shown before actual wallet
+- Pattern is reusable for other wallet-dependent components
+
+---
+
 ## January 21, 2025 - Transaction Simulation Provider
 
 **Context**: Phase 2 requires transaction simulation to show users exact outcomes before signing. Need to choose between self-hosted (Anvil forks), third-party API (Tenderly), or RPC-based (eth_call with state overrides).
@@ -255,6 +378,38 @@ This document records significant architectural and technical decisions made dur
 - Requires separate worker process
 - Redis becomes critical infrastructure
 - Need to handle job failures gracefully
+
+---
+
+## January 21, 2025 - Date Serialization for Redis Cache
+
+**Context**: `getProgress` endpoint was returning 500 errors. Dates stored in Redis were being retrieved as strings, not Date objects, causing `.toISOString()` calls to fail.
+
+**Options Considered**:
+1. **Parse on Read** - Convert strings to Dates when reading from cache
+2. **Check Type** - Use instanceof check before calling date methods
+3. **Store as ISO** - Store dates as ISO strings in Redis
+4. **Custom Serializer** - Use reviver function in JSON.parse
+
+**Decision**: Type check with instanceof before serialization
+
+**Rationale**:
+- Redis JSON serialization converts Dates to strings automatically
+- Adding instanceof check handles both fresh (Date) and cached (string) values
+- Minimal code change, maximum compatibility
+- Same pattern needed in multiple router endpoints
+
+**Implementation**:
+```typescript
+startedAt: progress.startedAt instanceof Date
+  ? progress.startedAt.toISOString()
+  : String(progress.startedAt),
+```
+
+**Consequences**:
+- Progress endpoint works reliably
+- Pattern applied consistently in history router
+- Slightly verbose but explicit about type handling
 
 ---
 

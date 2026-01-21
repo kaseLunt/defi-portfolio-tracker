@@ -36,6 +36,7 @@ export function useLivePortfolio(
     refetch,
     // Derived data
     totalValue: data?.totalValueUsd ?? 0,
+    tokenBalances: data?.tokenBalances ?? [],
     positions: data?.positions ?? [],
     byProtocol: data?.byProtocol ?? [],
     byChain: data?.byChain ?? [],

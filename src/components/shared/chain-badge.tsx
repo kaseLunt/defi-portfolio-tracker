@@ -49,19 +49,26 @@ export function ChainBadge({
 
 interface ChainDotProps {
   chainId: SupportedChainId;
+  size?: "sm" | "md" | "lg";
   className?: string;
 }
 
-export function ChainDot({ chainId, className }: ChainDotProps) {
+export function ChainDot({ chainId, size = "md", className }: ChainDotProps) {
   const chain = CHAIN_INFO[chainId];
 
   if (!chain) {
     return null;
   }
 
+  const sizeClasses = {
+    sm: "w-2.5 h-2.5",
+    md: "w-3 h-3",
+    lg: "w-4 h-4",
+  };
+
   return (
     <div
-      className={cn("w-3 h-3 rounded-full", className)}
+      className={cn(sizeClasses[size], "rounded-full border border-background", className)}
       style={{ backgroundColor: chain.color }}
       title={chain.name}
     />
