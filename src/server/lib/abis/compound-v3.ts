@@ -1,0 +1,91 @@
+// Compound V3 (Comet) ABI
+export const cometAbi = [
+  {
+    inputs: [{ name: "account", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "account", type: "address" }],
+    name: "borrowBalanceOf",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "baseToken",
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "baseTokenPriceFeed",
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "getSupplyRate",
+    outputs: [{ name: "", type: "uint64" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "getBorrowRate",
+    outputs: [{ name: "", type: "uint64" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "account", type: "address" },
+      { name: "asset", type: "address" },
+    ],
+    name: "collateralBalanceOf",
+    outputs: [{ name: "", type: "uint128" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "numAssets",
+    outputs: [{ name: "", type: "uint8" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "i", type: "uint8" }],
+    name: "getAssetInfo",
+    outputs: [
+      {
+        components: [
+          { name: "offset", type: "uint8" },
+          { name: "asset", type: "address" },
+          { name: "priceFeed", type: "address" },
+          { name: "scale", type: "uint64" },
+          { name: "borrowCollateralFactor", type: "uint64" },
+          { name: "liquidateCollateralFactor", type: "uint64" },
+          { name: "liquidationFactor", type: "uint64" },
+          { name: "supplyCap", type: "uint128" },
+        ],
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "decimals",
+    outputs: [{ name: "", type: "uint8" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;

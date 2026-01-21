@@ -1,0 +1,304 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// CORE ENTITIES
+// ============================================
+
+model User {
+  id            String   @id @default(cuid())
+  walletAddress String   @unique @map("wallet_address")
+  ensName       String?  @map("ens_name")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+
+  // Preferences as JSON
+  preferences   Json     @default("{\"currency\": \"USD\", \"theme\": \"dark\"}")
+
+  // Relations
+  notificationChannels NotificationChannel[]
+  positions            Position[]
+  transactions         Transaction[]
+  alertRules           AlertRule[]
+  notifications        Notification[]
+
+  @@map("users")
+}
+
+model NotificationChannel {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  channelType  String   @map("channel_type") // email, telegram, push, webhook
+  channelValue String   @map("channel_value")
+  isVerified   Boolean  @default(false) @map("is_verified")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelType, channelValue])
+  @@map("notification_channels")
+}
+
+// ============================================
+// PORTFOLIO DATA
+// ============================================
+
+model Chain {
+  id          Int      @id @default(autoincrement())
+  chainId     Int      @unique @map("chain_id")
+  name        String
+  rpcUrl      String?  @map("rpc_url")
+  explorerUrl String?  @map("explorer_url")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  tokens       Token[]
+  positions    Position[]
+  transactions Transaction[]
+  yieldHistory YieldHistory[]
+
+  @@map("chains")
+}
+
+model Protocol {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  name            String
+  category        String   // lending, staking, dex, yield
+  websiteUrl      String?  @map("website_url")
+  logoUrl         String?  @map("logo_url")
+  config          Json     @default("{}")
+  supportedChains Int[]    @default([]) @map("supported_chains")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  positions    Position[]
+  transactions Transaction[]
+  yieldHistory YieldHistory[]
+  txTemplates  TxTemplate[]
+
+  @@map("protocols")
+}
+
+model Token {
+  id          String   @id @default(cuid())
+  chainId     Int      @map("chain_id")
+  address     String
+  symbol      String
+  name        String?
+  decimals    Int      @default(18)
+  logoUrl     String?  @map("logo_url")
+  coingeckoId String?  @map("coingecko_id")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  chain        Chain          @relation(fields: [chainId], references: [chainId])
+  positions    Position[]
+  yieldHistory YieldHistory[]
+  priceCache   PriceCache?
+
+  @@unique([chainId, address])
+  @@map("tokens")
+}
+
+model Position {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  protocolId    String   @map("protocol_id")
+  chainId       Int      @map("chain_id")
+  positionType  String   @map("position_type") // supply, borrow, stake, lp, vault
+  tokenId       String   @map("token_id")
+
+  // Current state
+  balanceRaw    String   @map("balance_raw") // Store as string for BigInt
+  balanceUsd    Float?   @map("balance_usd")
+
+  // Yield tracking
+  apyCurrent    Float?   @map("apy_current")
+  rewardsAccrued Json    @default("[]") @map("rewards_accrued")
+
+  // Protocol-specific data
+  metadata      Json     @default("{}")
+
+  // Timestamps
+  openedAt      DateTime? @map("opened_at")
+  lastUpdatedAt DateTime  @default(now()) @map("last_updated_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  protocol  Protocol @relation(fields: [protocolId], references: [id])
+  chain     Chain    @relation(fields: [chainId], references: [chainId])
+  token     Token    @relation(fields: [tokenId], references: [id])
+  snapshots PositionSnapshot[]
+
+  @@unique([userId, protocolId, chainId, positionType, tokenId])
+  @@map("positions")
+}
+
+model PositionSnapshot {
+  id            String   @id @default(cuid())
+  positionId    String   @map("position_id")
+  balanceRaw    String   @map("balance_raw")
+  balanceUsd    Float?   @map("balance_usd")
+  apyAtSnapshot Float?   @map("apy_at_snapshot")
+  snapshotAt    DateTime @default(now()) @map("snapshot_at")
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@index([positionId, snapshotAt(sort: Desc)])
+  @@map("position_snapshots")
+}
+
+// ============================================
+// YIELD DATA
+// ============================================
+
+model YieldHistory {
+  id         String   @id @default(cuid())
+  protocolId String   @map("protocol_id")
+  chainId    Int      @map("chain_id")
+  tokenId    String   @map("token_id")
+  poolId     String?  @map("pool_id")
+
+  apyBase    Float?   @map("apy_base")
+  apyReward  Float?   @map("apy_reward")
+  apyTotal   Float?   @map("apy_total")
+  tvlUsd     Float?   @map("tvl_usd")
+
+  recordedAt DateTime @default(now()) @map("recorded_at")
+
+  protocol Protocol @relation(fields: [protocolId], references: [id])
+  chain    Chain    @relation(fields: [chainId], references: [chainId])
+  token    Token    @relation(fields: [tokenId], references: [id])
+
+  @@index([protocolId, chainId, tokenId, recordedAt(sort: Desc)])
+  @@map("yield_history")
+}
+
+// ============================================
+// TRANSACTIONS
+// ============================================
+
+model TxTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String?  // swap, deposit, withdraw, stake, claim
+  protocolId  String?  @map("protocol_id")
+  steps       Json     // Array of transaction steps
+  isPublic    Boolean  @default(true) @map("is_public")
+  createdBy   String?  @map("created_by")
+  useCount    Int      @default(0) @map("use_count")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  protocol Protocol? @relation(fields: [protocolId], references: [id])
+
+  @@map("tx_templates")
+}
+
+model Transaction {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  chainId      Int      @map("chain_id")
+  txHash       String   @map("tx_hash")
+  blockNumber  BigInt?  @map("block_number")
+
+  txType       String?  @map("tx_type")
+  protocolId   String?  @map("protocol_id")
+
+  status       String   @default("pending") // pending, confirmed, failed
+
+  valueUsd     Float?   @map("value_usd")
+  gasUsed      BigInt?  @map("gas_used")
+  gasPriceGwei Float?   @map("gas_price_gwei")
+  gasUsd       Float?   @map("gas_usd")
+
+  txData       Json?    @map("tx_data")
+
+  createdAt    DateTime @default(now()) @map("created_at")
+  confirmedAt  DateTime? @map("confirmed_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chain    Chain     @relation(fields: [chainId], references: [chainId])
+  protocol Protocol? @relation(fields: [protocolId], references: [id])
+
+  @@unique([chainId, txHash])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("transactions")
+}
+
+// ============================================
+// NOTIFICATIONS & ALERTS
+// ============================================
+
+model AlertRule {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  name            String
+  isActive        Boolean  @default(true) @map("is_active")
+
+  ruleType        String   @map("rule_type") // price, position, yield, gas, whale
+  conditions      Json
+
+  channels        String[] @default(["inApp"])
+  cooldownMinutes Int      @default(60) @map("cooldown_minutes")
+
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  triggerCount    Int       @default(0) @map("trigger_count")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifications Notification[]
+
+  @@index([userId, isActive])
+  @@map("alert_rules")
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  alertRuleId String?  @map("alert_rule_id")
+
+  title       String
+  body        String
+  category    String?  // alert, system, transaction, security
+  priority    String   @default("normal") // low, normal, high, urgent
+
+  channelsSent String[] @default([]) @map("channels_sent")
+
+  isRead      Boolean  @default(false) @map("is_read")
+  readAt      DateTime? @map("read_at")
+
+  metadata    Json     @default("{}")
+  actionUrl   String?  @map("action_url")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  expiresAt   DateTime? @map("expires_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertRule AlertRule? @relation(fields: [alertRuleId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// ============================================
+// PRICE CACHE
+// ============================================
+
+model PriceCache {
+  tokenId      String   @id @map("token_id")
+  priceUsd     Float    @map("price_usd")
+  priceEth     Float?   @map("price_eth")
+  change24hPct Float?   @map("change_24h_pct")
+  updatedAt    DateTime @default(now()) @map("updated_at")
+
+  token Token @relation(fields: [tokenId], references: [id])
+
+  @@map("price_cache")
+}
