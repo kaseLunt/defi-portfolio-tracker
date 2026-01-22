@@ -78,6 +78,24 @@ export const txMonitorQueue = new Queue("tx-monitor", {
   },
 });
 
+// Queue for pre-warming portfolio cache for active wallets
+export const cachePrewarmQueue = new Queue("cache-prewarm", {
+  connection,
+  defaultJobOptions: {
+    attempts: 2,
+    backoff: {
+      type: "fixed",
+      delay: 5000,
+    },
+    removeOnComplete: {
+      count: 50,
+    },
+    removeOnFail: {
+      count: 100,
+    },
+  },
+});
+
 // Initialize scheduled jobs
 export async function initScheduledJobs() {
   // Price updates every 30 seconds
@@ -104,6 +122,18 @@ export async function initScheduledJobs() {
     }
   );
 
+  // Cache pre-warming every 2 minutes for active wallets
+  await cachePrewarmQueue.add(
+    "prewarm-active",
+    {},
+    {
+      repeat: {
+        every: 120000, // 2 minutes
+      },
+      jobId: "scheduled-cache-prewarm",
+    }
+  );
+
   console.log("Scheduled jobs initialized");
 }
 
@@ -113,4 +143,5 @@ export const queues = {
   priceUpdate: priceUpdateQueue,
   alertCheck: alertCheckQueue,
   txMonitor: txMonitorQueue,
+  cachePrewarm: cachePrewarmQueue,
 };

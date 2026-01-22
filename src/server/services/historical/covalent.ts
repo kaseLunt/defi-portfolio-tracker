@@ -5,10 +5,21 @@ import {
 } from "@/lib/constants";
 import type { TokenBalance, CovalentHistoricalResponse } from "./types";
 import { getHistoricalBalancesViaRpc } from "./alchemy";
+import {
+  fetchWithRetry,
+  getRateLimiter,
+  sleep,
+} from "@/server/lib/rate-limiter";
 
 const COVALENT_API_KEY = process.env.COVALENT_API_KEY;
 const COVALENT_BASE_URL = "https://api.covalenthq.com/v1";
 const REQUEST_TIMEOUT = 15000; // 15 seconds
+
+// GoldRush rate limit: 4 requests per second for free tier
+const goldRushRateLimiter = getRateLimiter("goldrush", {
+  ratePerSecond: 2, // Be conservative to avoid 429s
+  maxBurst: 3,
+});
 
 // Cache for GoldRush responses to avoid duplicate API calls
 // Key: `${walletAddress}:${chainId}:${days}`
@@ -19,9 +30,13 @@ const goldRushCache = new Map<string, {
 
 const CACHE_TTL = 60 * 1000; // 1 minute cache for in-flight deduplication
 
+// Track in-flight requests to avoid duplicate parallel calls
+const inFlightRequests = new Map<string, Promise<CovalentHistoricalResponse | null>>();
+
 /**
  * Fetches full portfolio history from GoldRush for a chain (single API call)
  * Returns the raw response for extracting multiple timestamps
+ * Uses rate limiting and exponential backoff for 429 errors
  */
 async function fetchGoldRushPortfolio(
   walletAddress: Address,
@@ -44,43 +59,67 @@ async function fetchGoldRushPortfolio(
     return cached.data;
   }
 
+  // Check if there's already an in-flight request for this key
+  const inFlight = inFlightRequests.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
   const url = `${COVALENT_BASE_URL}/${chainName}/address/${walletAddress}/portfolio_v2/?quote-currency=USD&days=${days}`;
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  // Create the request promise
+  const requestPromise = (async (): Promise<CovalentHistoricalResponse | null> => {
+    try {
+      // Wait for rate limit token
+      await goldRushRateLimiter.acquire();
 
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${COVALENT_API_KEY}`,
-      },
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.warn(
-        `GoldRush API error for ${chainName}: ${response.status} ${response.statusText}`
+      const response = await fetchWithRetry(
+        url,
+        {
+          timeout: REQUEST_TIMEOUT,
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${COVALENT_API_KEY}`,
+          },
+        },
+        {
+          maxRetries: 3,
+          baseDelayMs: 2000, // Start with 2s delay for 429s
+          maxDelayMs: 30000,
+          retryStatusCodes: [429, 500, 502, 503, 504],
+        }
       );
+
+      if (!response.ok) {
+        console.warn(
+          `GoldRush API error for ${chainName}: ${response.status} ${response.statusText}`
+        );
+        return null;
+      }
+
+      const data = (await response.json()) as CovalentHistoricalResponse;
+
+      // Cache the response
+      goldRushCache.set(cacheKey, { data, fetchedAt: Date.now() });
+
+      return data;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        console.warn(`GoldRush request timed out for ${chainName}`);
+      } else {
+        console.warn(`GoldRush request failed for ${chainName}:`, error);
+      }
       return null;
+    } finally {
+      // Clean up in-flight tracking
+      inFlightRequests.delete(cacheKey);
     }
+  })();
 
-    const data = (await response.json()) as CovalentHistoricalResponse;
+  // Track the in-flight request
+  inFlightRequests.set(cacheKey, requestPromise);
 
-    // Cache the response
-    goldRushCache.set(cacheKey, { data, fetchedAt: Date.now() });
-
-    return data;
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      console.warn(`GoldRush request timed out for ${chainName}`);
-    } else {
-      console.warn(`GoldRush request failed for ${chainName}:`, error);
-    }
-    return null;
-  }
+  return requestPromise;
 }
 
 /**

@@ -5,10 +5,13 @@
 
 import type { Address } from "viem";
 import { COVALENT_CHAIN_NAMES, type SupportedChainId, SUPPORTED_CHAINS } from "@/lib/constants";
+import { getFromCache, setInCache } from "../lib/redis";
 
 const COVALENT_API_KEY = process.env.COVALENT_API_KEY;
 const COVALENT_BASE_URL = "https://api.covalenthq.com/v1";
 const REQUEST_TIMEOUT = 15000;
+// Cache token balances for 2 minutes
+const BALANCE_CACHE_TTL = 120;
 
 export interface TokenBalance {
   chainId: SupportedChainId;
@@ -119,6 +122,7 @@ async function fetchChainBalances(
 
 /**
  * Fetch current token balances for a wallet across multiple chains
+ * Results are cached for 2 minutes per wallet
  */
 export async function getTokenBalances(
   walletAddress: Address,
@@ -134,6 +138,15 @@ export async function getTokenBalances(
         SUPPORTED_CHAINS.POLYGON,
       ];
 
+  // Check cache first
+  const cacheKey = `balances:${walletAddress.toLowerCase()}:${chainsToQuery.sort().join(",")}`;
+  const cached = await getFromCache<TokenBalance[]>(cacheKey);
+  if (cached) {
+    console.log(`[Balances] Cache HIT for ${walletAddress.slice(0, 10)}...`);
+    return cached;
+  }
+
+  console.log(`[Balances] Cache MISS for ${walletAddress.slice(0, 10)}...`);
   const results = await Promise.allSettled(
     chainsToQuery.map((chainId) => fetchChainBalances(walletAddress, chainId))
   );
@@ -148,6 +161,9 @@ export async function getTokenBalances(
 
   // Sort by USD value descending
   allBalances.sort((a, b) => b.quoteUsd - a.quoteUsd);
+
+  // Cache the result
+  await setInCache(cacheKey, allBalances, BALANCE_CACHE_TTL);
 
   return allBalances;
 }

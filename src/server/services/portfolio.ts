@@ -7,8 +7,8 @@ import { getPrices, COINGECKO_IDS } from "./price";
 import { getFromCache, setInCache } from "../lib/redis";
 import { getTokenBalances, type TokenBalance } from "./balances";
 
-// Cache TTL for portfolio data (30 seconds)
-const PORTFOLIO_CACHE_TTL = 30;
+// Cache TTL for portfolio data (5 minutes - fetching is expensive)
+const PORTFOLIO_CACHE_TTL = 300;
 
 // Minimum USD value to display a position (filter out dust)
 const MIN_POSITION_VALUE_USD = 1;
@@ -71,9 +71,11 @@ export async function getPortfolio(
   }
 
   // Fetch DeFi positions and token balances in parallel
+  const fetchStart = Date.now();
   const [positionsResult, tokenBalances] = await Promise.all([
     // Get all positions from adapters
     (async () => {
+      const adapterStart = Date.now();
       let positions: Position[];
 
       if (options?.protocols?.length) {
@@ -98,11 +100,18 @@ export async function getPortfolio(
         positions = positions.filter((p) => options.chains!.includes(p.chainId));
       }
 
+      console.log(`[Portfolio] Adapters took ${Date.now() - adapterStart}ms`);
       return positions;
     })(),
     // Fetch raw token balances from GoldRush
-    getTokenBalances(walletAddress, options?.chains),
+    (async () => {
+      const goldrushStart = Date.now();
+      const balances = await getTokenBalances(walletAddress, options?.chains);
+      console.log(`[Portfolio] GoldRush took ${Date.now() - goldrushStart}ms`);
+      return balances;
+    })(),
   ]);
+  console.log(`[Portfolio] Total fetch took ${Date.now() - fetchStart}ms`);
 
   let positions = positionsResult;
 
@@ -115,7 +124,9 @@ export async function getPortfolio(
   }
 
   // Fetch prices
+  const priceStart = Date.now();
   const prices = await getPrices(Array.from(coingeckoIds));
+  console.log(`[Portfolio] Prices took ${Date.now() - priceStart}ms for ${coingeckoIds.size} tokens`);
 
   // Enrich positions with USD values
   const enrichedPositions: EnrichedPosition[] = positions.map((position) => {

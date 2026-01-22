@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   AreaChart,
   Area,
@@ -8,19 +8,29 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  CartesianGrid,
+  ReferenceLine,
 } from "recharts";
 import { format } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatUSD } from "@/lib/utils";
+import { TrendingUp, TrendingDown, BarChart3, Clock, Database, Sparkles } from "lucide-react";
 
-type Timeframe = "24h" | "7d" | "30d" | "90d" | "1y" | "all";
+type Timeframe = "7d" | "30d" | "90d" | "1y";
 
 interface LoadingProgress {
-  status: "idle" | "pending" | "fetching_balances" | "fetching_prices" | "processing" | "complete" | "error";
+  status:
+    | "idle"
+    | "pending"
+    | "fetching_balances"
+    | "fetching_prices"
+    | "processing"
+    | "complete"
+    | "error";
   stage: string;
   percent: number;
+  processedChains: number;
+  totalChains: number;
   processedTimestamps: number;
   totalTimestamps: number;
 }
@@ -32,89 +42,25 @@ interface ValueChartProps {
   progress?: LoadingProgress;
   onTimeframeChange?: (timeframe: Timeframe) => void;
   selectedTimeframe?: Timeframe;
-  showSimulated?: boolean; // If true, show simulated data when no real data
 }
 
 const TIMEFRAME_OPTIONS: { value: Timeframe; label: string }[] = [
-  { value: "24h", label: "24H" },
   { value: "7d", label: "7D" },
-  { value: "30d", label: "30D" },
-  { value: "90d", label: "90D" },
+  { value: "30d", label: "1M" },
+  { value: "90d", label: "3M" },
   { value: "1y", label: "1Y" },
-  { value: "all", label: "All" },
 ];
-
-// Generate simulated historical data when no data is available
-function generateSimulatedData(
-  currentValue: number,
-  timeframe: Timeframe
-): { timestamp: Date; totalUsd: number }[] {
-  const now = new Date();
-  const data: { timestamp: Date; totalUsd: number }[] = [];
-
-  let points: number;
-  let intervalMs: number;
-
-  switch (timeframe) {
-    case "24h":
-      points = 24;
-      intervalMs = 60 * 60 * 1000; // 1 hour
-      break;
-    case "7d":
-      points = 28;
-      intervalMs = 6 * 60 * 60 * 1000; // 6 hours
-      break;
-    case "30d":
-      points = 30;
-      intervalMs = 24 * 60 * 60 * 1000; // 1 day
-      break;
-    case "90d":
-      points = 30;
-      intervalMs = 3 * 24 * 60 * 60 * 1000; // 3 days
-      break;
-    case "1y":
-      points = 52;
-      intervalMs = 7 * 24 * 60 * 60 * 1000; // 1 week
-      break;
-    case "all":
-      points = 24;
-      intervalMs = 30 * 24 * 60 * 60 * 1000; // 1 month
-      break;
-  }
-
-  // Generate slightly varying historical values
-  // Starting from a lower value to show growth
-  const volatility = 0.02; // 2% variation
-  const growthFactor = timeframe === "all" ? 0.5 : timeframe === "1y" ? 0.8 : 0.95;
-
-  for (let i = points - 1; i >= 0; i--) {
-    const timestamp = new Date(now.getTime() - i * intervalMs);
-    const progress = (points - 1 - i) / (points - 1); // 0 to 1
-    const baseValue = currentValue * (growthFactor + (1 - growthFactor) * progress);
-    const noise = (Math.random() - 0.5) * 2 * volatility * baseValue;
-    const value = i === 0 ? currentValue : baseValue + noise;
-
-    data.push({
-      timestamp,
-      totalUsd: Math.max(0, value),
-    });
-  }
-
-  return data;
-}
 
 function formatXAxis(timestamp: Date, timeframe: Timeframe): string {
   switch (timeframe) {
-    case "24h":
-      return format(timestamp, "HH:mm");
     case "7d":
       return format(timestamp, "EEE");
     case "30d":
+      return format(timestamp, "MMM d");
     case "90d":
       return format(timestamp, "MMM d");
     case "1y":
-    case "all":
-      return format(timestamp, "MMM yyyy");
+      return format(timestamp, "MMM ''yy");
     default:
       return format(timestamp, "MMM d");
   }
@@ -124,20 +70,26 @@ interface CustomTooltipProps {
   active?: boolean;
   payload?: Array<{ value: number; payload?: { formattedDate?: string } }>;
   label?: Date | string | number;
+  isPositive: boolean;
 }
 
-function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
+function CustomTooltip({ active, payload, isPositive }: CustomTooltipProps) {
   if (!active || !payload || !payload.length) return null;
 
-  // Use formattedDate from payload if available, otherwise format the label
-  const formattedLabel =
-    payload[0]?.payload?.formattedDate ??
-    (label instanceof Date ? format(label, "MMM d, yyyy HH:mm") : String(label ?? ""));
+  const formattedLabel = payload[0]?.payload?.formattedDate ?? "";
 
   return (
-    <div className="bg-popover border rounded-lg shadow-lg p-3">
-      <p className="text-xs text-muted-foreground mb-1">{formattedLabel}</p>
-      <p className="text-sm font-semibold">{formatUSD(payload[0].value)}</p>
+    <div className="glass-heavy border border-border rounded-xl shadow-2xl p-4 min-w-[160px]">
+      <p className="text-xs text-muted-foreground mb-2 font-medium">
+        {formattedLabel}
+      </p>
+      <p
+        className={`text-xl font-bold tabular-nums font-display ${
+          isPositive ? "text-emerald-400" : "text-red-400"
+        }`}
+      >
+        {formatUSD(payload[0].value)}
+      </p>
     </div>
   );
 }
@@ -149,9 +101,13 @@ export function ValueChart({
   progress,
   onTimeframeChange,
   selectedTimeframe = "7d",
-  showSimulated = false,
 }: ValueChartProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>(selectedTimeframe);
+
+  // Sync internal state with prop (e.g., when wallet changes and resets to 7d)
+  useEffect(() => {
+    setTimeframe(selectedTimeframe);
+  }, [selectedTimeframe]);
 
   const handleTimeframeChange = (newTimeframe: Timeframe) => {
     setTimeframe(newTimeframe);
@@ -160,57 +116,112 @@ export function ValueChart({
 
   const hasRealData = data && data.length > 0;
 
-  // Use provided data or generate simulated data (only if showSimulated is true)
   const chartData = useMemo(() => {
-    if (hasRealData) {
-      return data.map((d) => ({
-        ...d,
-        timestamp: new Date(d.timestamp),
-        formattedDate: format(new Date(d.timestamp), "MMM d, yyyy HH:mm"),
-      }));
-    }
-    if (showSimulated) {
-      return generateSimulatedData(currentValue, timeframe).map((d) => ({
-        ...d,
-        formattedDate: format(d.timestamp, "MMM d, yyyy HH:mm"),
-      }));
-    }
-    return [];
-  }, [data, hasRealData, currentValue, timeframe, showSimulated]);
+    if (!hasRealData) return [];
+    return data.map((d) => ({
+      ...d,
+      timestamp: new Date(d.timestamp),
+      formattedDate: format(new Date(d.timestamp), "MMM d, yyyy \u2022 h:mm a"),
+    }));
+  }, [data, hasRealData]);
 
-  // Calculate change
+  const { yMin, yMax, avgValue } = useMemo(() => {
+    if (chartData.length === 0) {
+      return { yMin: 0, yMax: 100, avgValue: 50 };
+    }
+
+    const values = chartData.map((d) => d.totalUsd);
+    const dataMin = Math.min(...values);
+    const dataMax = Math.max(...values);
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    const range = dataMax - dataMin;
+
+    const padding = range * 0.15 || dataMax * 0.1;
+    let min = dataMin - padding;
+    let max = dataMax + padding;
+
+    // Round to nice values
+    const magnitude = Math.pow(10, Math.floor(Math.log10(max - min)));
+    const step = magnitude / 4;
+
+    min = Math.floor(min / step) * step;
+    max = Math.ceil(max / step) * step;
+
+    return { yMin: Math.max(0, min), yMax: max, avgValue: avg };
+  }, [chartData]);
+
   const firstValue = chartData[0]?.totalUsd ?? currentValue;
   const lastValue = chartData[chartData.length - 1]?.totalUsd ?? currentValue;
   const change = hasRealData ? lastValue - firstValue : 0;
-  const changePercent = hasRealData && firstValue > 0 ? (change / firstValue) * 100 : 0;
+  const changePercent =
+    hasRealData && firstValue > 0 ? (change / firstValue) * 100 : 0;
   const isPositive = change >= 0;
 
+  // Generate gradient colors based on performance
+  const gradientId = `chartGradient-${isPositive ? "up" : "down"}`;
+  const strokeColor = isPositive ? "#34d399" : "#f87171";
+  const glowColor = isPositive ? "rgba(52, 211, 153, 0.3)" : "rgba(248, 113, 113, 0.3)";
+
   return (
-    <Card>
+    <Card className="overflow-hidden card-glow border-border/50">
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-sm font-medium">Portfolio Value</CardTitle>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-2xl font-bold">{formatUSD(currentValue)}</span>
-              <span
-                className={`text-sm font-medium ${
-                  isPositive ? "text-green-500" : "text-red-500"
-                }`}
-              >
-                {isPositive ? "+" : ""}
-                {formatUSD(change)} ({isPositive ? "+" : ""}
-                {changePercent.toFixed(2)}%)
-              </span>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm font-medium text-muted-foreground">
+                Portfolio Performance
+              </p>
             </div>
+            <div className="flex items-baseline gap-4">
+              <span className="text-3xl font-bold tracking-tight tabular-nums font-display">
+                {formatUSD(currentValue)}
+              </span>
+              {hasRealData && (
+                <span
+                  className={`inline-flex items-center gap-1.5 text-sm font-semibold px-2.5 py-1 rounded-lg ${
+                    isPositive
+                      ? "text-emerald-400 bg-emerald-500/10"
+                      : "text-red-400 bg-red-500/10"
+                  }`}
+                >
+                  {isPositive ? (
+                    <TrendingUp className="h-3.5 w-3.5" />
+                  ) : (
+                    <TrendingDown className="h-3.5 w-3.5" />
+                  )}
+                  <span className="tabular-nums">
+                    {isPositive ? "+" : ""}
+                    {changePercent.toFixed(2)}%
+                  </span>
+                </span>
+              )}
+            </div>
+            {hasRealData && (
+              <p className="text-xs text-muted-foreground tabular-nums">
+                {isPositive ? "+" : ""}
+                {formatUSD(change)} past{" "}
+                {timeframe === "7d"
+                  ? "7 days"
+                  : timeframe === "30d"
+                    ? "30 days"
+                    : timeframe === "90d"
+                      ? "90 days"
+                      : "year"}
+              </p>
+            )}
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-1 p-1 rounded-xl bg-secondary/50 border border-border">
             {TIMEFRAME_OPTIONS.map((option) => (
               <Button
                 key={option.value}
                 variant={timeframe === option.value ? "default" : "ghost"}
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className={`h-8 px-4 text-xs font-semibold rounded-lg transition-all ${
+                  timeframe === option.value
+                    ? "shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
                 onClick={() => handleTimeframeChange(option.value)}
               >
                 {option.label}
@@ -219,97 +230,165 @@ export function ValueChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-6 pb-4 px-2 sm:px-6">
         {isLoading ? (
-          <div className="h-[200px] flex flex-col items-center justify-center gap-4">
-            {progress && progress.status !== "idle" && progress.status !== "complete" ? (
+          <div className="h-[200px] sm:h-[260px] flex flex-col items-center justify-center gap-6">
+            {progress &&
+            progress.status !== "idle" &&
+            progress.status !== "complete" ? (
               <>
-                {/* Progress bar */}
+                {/* Stage Icon */}
+                <div className="relative">
+                  <div className="h-14 w-14 rounded-xl border-2 border-primary/20 border-t-primary animate-spin flex items-center justify-center">
+                    {progress.status === "fetching_balances" ? (
+                      <Database className="h-6 w-6 text-primary" />
+                    ) : progress.status === "fetching_prices" ? (
+                      <TrendingUp className="h-6 w-6 text-primary" />
+                    ) : progress.status === "processing" ? (
+                      <Sparkles className="h-6 w-6 text-primary" />
+                    ) : (
+                      <Clock className="h-6 w-6 text-primary" />
+                    )}
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
                 <div className="w-full max-w-xs">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+                    <span>Building chart</span>
+                    <span className="tabular-nums">{progress.percent}%</span>
+                  </div>
                   <div className="h-2 bg-secondary rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-primary transition-all duration-300 ease-out"
-                      style={{ width: `${Math.max(progress.percent, 5)}%` }}
+                      className="h-full bg-gradient-to-r from-primary via-primary to-primary/60 rounded-full transition-all duration-500 ease-out"
+                      style={{
+                        width: `${Math.max(progress.percent, 5)}%`,
+                        boxShadow: "0 0 20px hsl(var(--primary) / 0.5)",
+                      }}
                     />
                   </div>
                 </div>
-                {/* Stage message */}
-                <div className="text-center">
-                  <p className="text-sm text-muted-foreground">{progress.stage}</p>
-                  {progress.totalTimestamps > 0 && (
-                    <p className="text-xs text-muted-foreground/70 mt-1">
-                      {progress.processedTimestamps} of {progress.totalTimestamps} data points
+
+                {/* Stage Description */}
+                <div className="text-center max-w-xs">
+                  <p className="text-sm font-medium mb-1">
+                    {progress.stage || "Processing..."}
+                  </p>
+                  {progress.status === "fetching_balances" && progress.totalChains > 0 && (
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {progress.processedChains} / {progress.totalChains} chains scanned
+                    </p>
+                  )}
+                  {progress.status === "fetching_prices" && progress.totalTimestamps > 0 && (
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {progress.processedTimestamps} / {progress.totalTimestamps} data points
                     </p>
                   )}
                 </div>
               </>
             ) : (
-              <div className="animate-pulse text-muted-foreground">Loading chart...</div>
+              <div className="flex flex-col items-center gap-4">
+                <div className="relative">
+                  <div className="h-12 w-12 rounded-xl border-2 border-primary/20 border-t-primary animate-spin" />
+                  <BarChart3 className="h-5 w-5 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium">Building your chart</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Fetching historical portfolio data...
+                  </p>
+                </div>
+              </div>
             )}
           </div>
         ) : chartData.length === 0 ? (
-          <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground">
-            <p>Historical data not yet available</p>
-            <p className="text-sm mt-1">Portfolio tracking begins when you connect your wallet</p>
+          <div className="h-[200px] sm:h-[260px] flex flex-col items-center justify-center text-muted-foreground">
+            <BarChart3 className="h-10 w-10 mb-3 opacity-50" />
+            <p className="text-sm font-medium">Historical data not yet available</p>
+            <p className="text-xs mt-1 opacity-70">
+              Portfolio tracking begins when you connect your wallet
+            </p>
           </div>
         ) : (
-          <div className="h-[200px] w-full">
+          <div className="h-[200px] sm:h-[260px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
                 data={chartData}
-                margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
               >
                 <defs>
-                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor={isPositive ? "#22c55e" : "#ef4444"}
-                      stopOpacity={0.3}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor={isPositive ? "#22c55e" : "#ef4444"}
-                      stopOpacity={0}
-                    />
+                  <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={strokeColor} stopOpacity={0.25} />
+                    <stop offset="50%" stopColor={strokeColor} stopOpacity={0.1} />
+                    <stop offset="100%" stopColor={strokeColor} stopOpacity={0} />
                   </linearGradient>
+                  <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+                    <feMerge>
+                      <feMergeNode in="coloredBlur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
                 </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  vertical={false}
-                  stroke="hsl(var(--border))"
+                {/* Reference line at average */}
+                <ReferenceLine
+                  y={avgValue}
+                  stroke="hsl(var(--muted-foreground))"
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.3}
                 />
                 <XAxis
                   dataKey="timestamp"
                   tickFormatter={(v) => formatXAxis(new Date(v), timeframe)}
-                  tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                  tick={{
+                    fontSize: 11,
+                    fill: "hsl(var(--muted-foreground))",
+                    fontWeight: 500,
+                  }}
                   tickLine={false}
                   axisLine={false}
-                  minTickGap={30}
+                  minTickGap={60}
+                  interval="preserveStartEnd"
+                  dy={8}
                 />
                 <YAxis
-                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                  tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                  tickFormatter={(v) =>
+                    v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v.toFixed(0)}`
+                  }
+                  tick={{
+                    fontSize: 10,
+                    fill: "hsl(var(--muted-foreground))",
+                    fontWeight: 500,
+                  }}
                   tickLine={false}
                   axisLine={false}
                   width={50}
-                  domain={[0, "dataMax * 1.1"]}
+                  domain={[yMin, yMax]}
+                  tickCount={5}
                 />
                 <Tooltip
-                  content={<CustomTooltip />}
-                  cursor={{ stroke: "hsl(var(--muted-foreground))", strokeWidth: 1 }}
+                  content={<CustomTooltip isPositive={isPositive} />}
+                  cursor={{
+                    stroke: "hsl(var(--muted-foreground))",
+                    strokeWidth: 1,
+                    strokeDasharray: "4 4",
+                    strokeOpacity: 0.5,
+                  }}
                 />
                 <Area
                   type="monotone"
                   dataKey="totalUsd"
-                  stroke={isPositive ? "#22c55e" : "#ef4444"}
-                  strokeWidth={2}
-                  fill="url(#colorValue)"
+                  stroke={strokeColor}
+                  strokeWidth={2.5}
+                  fill={`url(#${gradientId})`}
                   dot={false}
+                  filter="url(#glow)"
                   activeDot={{
-                    r: 4,
-                    stroke: isPositive ? "#22c55e" : "#ef4444",
+                    r: 6,
+                    stroke: strokeColor,
                     strokeWidth: 2,
-                    fill: "hsl(var(--background))",
+                    fill: "hsl(var(--card))",
+                    style: { boxShadow: `0 0 12px ${glowColor}` },
                   }}
                 />
               </AreaChart>

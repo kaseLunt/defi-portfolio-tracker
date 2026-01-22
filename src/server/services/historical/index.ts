@@ -14,6 +14,7 @@ import {
   updateProgress,
   getStageMessage,
 } from "./progress";
+import { sleep } from "@/server/lib/rate-limiter";
 import type {
   HistoricalTimeframe,
   HistoricalDataPoint,
@@ -60,14 +61,26 @@ function applyInterpolation(
   if (nonZeroValues.length === 0) return result;
 
   const medianValue = nonZeroValues[Math.floor(nonZeroValues.length / 2)];
-  const maxReasonableValue = Math.max(...nonZeroValues);
+  const maxValue = Math.max(...nonZeroValues);
 
-  // A value is considered "anomalous" if it's less than 30% of the median
-  // This catches cases where only some tokens have prices (partial data)
-  const anomalyThreshold = medianValue * 0.3;
+  // CRITICAL: Detect corrupted data scenario
+  // If currentValue is provided and is way higher than the median (10x+),
+  // most of the data is likely corrupted (failed chain fetches)
+  // In this case, use currentValue as the reference instead of median
+  let referenceValue = medianValue;
+  let dataCorrupted = false;
+
+  if (currentValue && currentValue > medianValue * 10) {
+    console.log(`[Historical] Data corruption detected: median=$${medianValue.toFixed(2)} but currentValue=$${currentValue.toFixed(2)}`);
+    referenceValue = currentValue;
+    dataCorrupted = true;
+  }
+
+  // A value is considered "anomalous" if it's less than 30% of the reference
+  const anomalyThreshold = referenceValue * 0.3;
 
   // Forward pass: replace anomalous values with previous good value
-  let lastGoodValue = 0;
+  let lastGoodValue = dataCorrupted && currentValue ? currentValue : 0;
   for (let i = 0; i < result.length; i++) {
     const value = result[i].totalUsd;
 
@@ -86,9 +99,15 @@ function applyInterpolation(
     for (let i = 0; i < firstGoodIndex; i++) {
       result[i].totalUsd = firstGoodValue * 0.98; // Slight decay
     }
+  } else if (firstGoodIndex === -1 && currentValue && currentValue > 0) {
+    // All values are bad, fill with currentValue
+    console.log(`[Historical] All data points corrupted, filling with currentValue`);
+    for (let i = 0; i < result.length; i++) {
+      result[i].totalUsd = currentValue;
+    }
   }
 
-  console.log(`[Historical] Interpolation: median=$${medianValue.toFixed(2)}, threshold=$${anomalyThreshold.toFixed(2)}, max=$${maxReasonableValue.toFixed(2)}`);
+  console.log(`[Historical] Interpolation: median=$${medianValue.toFixed(2)}, ref=$${referenceValue.toFixed(2)}, threshold=$${anomalyThreshold.toFixed(2)}, max=$${maxValue.toFixed(2)}${dataCorrupted ? ' (RECOVERED)' : ''}`);
 
   return result;
 }
@@ -135,6 +154,7 @@ export async function getHistoricalPortfolio(
         endValue: interpolatedData[interpolatedData.length - 1]?.totalUsd ?? 0,
         change: (interpolatedData[interpolatedData.length - 1]?.totalUsd ?? 0) - (interpolatedData[0]?.totalUsd ?? 0),
         cacheHit: true,
+        tokenPriceHistory: cached.tokenPriceHistory ?? {},
         requestId,
       };
     }
@@ -144,52 +164,42 @@ export async function getHistoricalPortfolio(
   // Generate timestamps for this timeframe
   const timestamps = generateTimestamps(timeframe);
 
-  // Initialize progress tracking if requestId provided
-  if (requestId) {
-    await initProgress(requestId, walletAddress, timeframe, timestamps.length);
-  }
-
   // STEP 1: Fetch all GoldRush data upfront (1 API call per chain = 5 total)
-  if (requestId) {
-    await updateProgress(requestId, {
-      status: "fetching_balances",
-      stage: `Fetching portfolio history from ${chains.length} chains...`,
-      currentStep: 0,
-    });
-  }
-
-  // Fetch bulk data for all chains in parallel
-  const chainDataPromises = chains.map((chainId) =>
-    getBulkHistoricalBalances(walletAddress, chainId, timestamps)
-  );
-  const chainDataResults = await Promise.allSettled(chainDataPromises);
-
-  // Build a map of chainId -> timestamp -> balances
+  // Process chains in parallel for speed (2 at a time to respect rate limits)
   const chainBalances = new Map<SupportedChainId, Map<number, TokenBalance[]>>();
-  chains.forEach((chainId, index) => {
-    const result = chainDataResults[index];
-    if (result.status === "fulfilled") {
-      chainBalances.set(chainId, result.value);
-    } else {
-      chainBalances.set(chainId, new Map());
-    }
-  });
+  const CHAIN_BATCH_SIZE = 2;
 
-  if (requestId) {
-    await updateProgress(requestId, {
-      status: "fetching_prices",
-      stage: "Fetching historical prices...",
-      currentStep: 1,
+  for (let i = 0; i < chains.length; i += CHAIN_BATCH_SIZE) {
+    const batch = chains.slice(i, i + CHAIN_BATCH_SIZE);
+
+    const batchResults = await Promise.allSettled(
+      batch.map((chainId) => getBulkHistoricalBalances(walletAddress, chainId, timestamps))
+    );
+
+    batch.forEach((chainId, index) => {
+      const result = batchResults[index];
+      if (result.status === "fulfilled") {
+        chainBalances.set(chainId, result.value);
+      } else {
+        console.warn(`[Historical] Chain ${chainId} fetch failed:`, result.reason);
+        chainBalances.set(chainId, new Map());
+      }
     });
+
+    // Small delay between batches
+    if (i + CHAIN_BATCH_SIZE < chains.length) {
+      await sleep(200);
+    }
   }
 
-  // STEP 2: Process each timestamp using the cached data
-  const dataPoints: HistoricalDataPoint[] = [];
-  let processedCount = 0;
+  // STEP 2: Process timestamps in PARALLEL for speed
+  const PRICE_CONCURRENCY = 5;
+  const dataPoints: HistoricalDataPoint[] = new Array(timestamps.length);
+  const tokenPriceHistory: Record<string, number[]> = {};
   const chainsWithData = new Set<SupportedChainId>();
 
-  for (const timestamp of timestamps) {
-    // Gather balances from all chains for this timestamp
+  // Prepare all timestamp data upfront
+  const timestampData = timestamps.map((timestamp, index) => {
     const allBalances: TokenBalance[] = [];
     for (const chainId of chains) {
       const chainData = chainBalances.get(chainId);
@@ -199,30 +209,48 @@ export async function getHistoricalPortfolio(
       }
       allBalances.push(...balances);
     }
+    return { timestamp, index, allBalances };
+  });
 
-    // Fetch prices and calculate value
-    let totalUsd = 0;
-    if (allBalances.length > 0) {
-      const tokenRequests = allBalances.map((b) => ({
-        chainId: b.chainId,
-        tokenAddress: b.tokenAddress,
-      }));
-      const prices = await getHistoricalPrices(tokenRequests, timestamp);
-      totalUsd = calculateTotalValue(allBalances, prices);
-    }
+  // Process in parallel batches
+  for (let i = 0; i < timestampData.length; i += PRICE_CONCURRENCY) {
+    const batch = timestampData.slice(i, i + PRICE_CONCURRENCY);
 
-    // Store raw value - interpolation will be applied after all data is collected
-    dataPoints.push({ timestamp, totalUsd });
-    processedCount++;
+    const batchResults = await Promise.all(
+      batch.map(async ({ timestamp, index, allBalances }) => {
+        let totalUsd = 0;
+        const prices = new Map<string, number>();
 
-    // Update progress
-    if (requestId) {
-      await updateProgress(requestId, {
-        status: "fetching_prices",
-        stage: `Processing data (${processedCount}/${timestamps.length})...`,
-        processedTimestamps: processedCount,
-        currentStep: processedCount + 1,
-      });
+        if (allBalances.length > 0) {
+          const tokenRequests = allBalances.map((b) => ({
+            chainId: b.chainId,
+            tokenAddress: b.tokenAddress,
+          }));
+          const fetchedPrices = await getHistoricalPrices(tokenRequests, timestamp);
+          totalUsd = calculateTotalValue(allBalances, fetchedPrices);
+
+          for (const [key, price] of fetchedPrices.entries()) {
+            prices.set(key, price);
+          }
+        }
+
+        return { timestamp, index, totalUsd, prices };
+      })
+    );
+
+    // Store results in correct order
+    for (const { timestamp, index, totalUsd, prices } of batchResults) {
+      dataPoints[index] = { timestamp, totalUsd };
+
+      for (const [tokenKey, price] of prices.entries()) {
+        if (!tokenPriceHistory[tokenKey]) {
+          tokenPriceHistory[tokenKey] = [];
+        }
+        while (tokenPriceHistory[tokenKey].length < index) {
+          tokenPriceHistory[tokenKey].push(0);
+        }
+        tokenPriceHistory[tokenKey][index] = price;
+      }
     }
   }
 
@@ -255,6 +283,7 @@ export async function getHistoricalPortfolio(
     fetchedAt: new Date(),
     cacheHit: false,
     chainsWithData: Array.from(chainsWithData),
+    tokenPriceHistory,
   };
 
   // Log summary for debugging

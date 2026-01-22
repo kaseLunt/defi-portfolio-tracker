@@ -3,10 +3,17 @@ import {
   type SupportedChainId,
 } from "@/lib/constants";
 import type { DefiLlamaPriceResponse } from "./types";
+import { fetchWithRetry, getRateLimiter, sleep } from "@/server/lib/rate-limiter";
 
 const DEFILLAMA_BASE_URL = "https://coins.llama.fi";
 const REQUEST_TIMEOUT = 10000; // 10 seconds
 const MAX_TOKENS_PER_REQUEST = 100;
+
+// DeFi Llama is free but we add conservative rate limiting to be a good citizen
+const defillamaRateLimiter = getRateLimiter("defillama", {
+  ratePerSecond: 5,
+  maxBurst: 10,
+});
 
 interface TokenPriceRequest {
   chainId: SupportedChainId;
@@ -64,9 +71,15 @@ export async function getHistoricalPrices(
 
   const unixTimestamp = Math.floor(timestamp.getTime() / 1000);
 
-  const results = await Promise.allSettled(
-    batches.map((batch) => fetchPriceBatch(batch, unixTimestamp))
-  );
+  // Process batches with small delays to avoid rate limiting
+  const results: PromiseSettledResult<Map<string, number>>[] = [];
+  for (let i = 0; i < batches.length; i++) {
+    if (i > 0) {
+      await sleep(200); // 200ms between batches
+    }
+    const result = await Promise.allSettled([fetchPriceBatch(batches[i], unixTimestamp)]);
+    results.push(result[0]);
+  }
 
   // Aggregate results from all batches
   for (const result of results) {
@@ -85,6 +98,7 @@ export async function getHistoricalPrices(
 
 /**
  * Fetches prices for a batch of coins
+ * Uses rate limiting and retry with exponential backoff
  */
 async function fetchPriceBatch(
   coinIds: string[],
@@ -96,17 +110,24 @@ async function fetchPriceBatch(
   const url = `${DEFILLAMA_BASE_URL}/prices/historical/${unixTimestamp}/${coinsParam}`;
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    // Rate limit
+    await defillamaRateLimiter.acquire();
 
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetchWithRetry(
+      url,
+      {
+        timeout: REQUEST_TIMEOUT,
+        headers: {
+          "Content-Type": "application/json",
+        },
       },
-    });
-
-    clearTimeout(timeoutId);
+      {
+        maxRetries: 2,
+        baseDelayMs: 1000,
+        maxDelayMs: 10000,
+        retryStatusCodes: [429, 500, 502, 503, 504],
+      }
+    );
 
     if (!response.ok) {
       console.warn(
@@ -191,6 +212,7 @@ export async function getCurrentPrices(
 
 /**
  * Fetches current prices for a batch of coins
+ * Uses rate limiting and retry with exponential backoff
  */
 async function fetchCurrentPriceBatch(
   coinIds: string[]
@@ -201,17 +223,24 @@ async function fetchCurrentPriceBatch(
   const url = `${DEFILLAMA_BASE_URL}/prices/current/${coinsParam}`;
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    // Rate limit
+    await defillamaRateLimiter.acquire();
 
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetchWithRetry(
+      url,
+      {
+        timeout: REQUEST_TIMEOUT,
+        headers: {
+          "Content-Type": "application/json",
+        },
       },
-    });
-
-    clearTimeout(timeoutId);
+      {
+        maxRetries: 2,
+        baseDelayMs: 1000,
+        maxDelayMs: 10000,
+        retryStatusCodes: [429, 500, 502, 503, 504],
+      }
+    );
 
     if (!response.ok) {
       console.warn(

@@ -3,6 +3,7 @@ import { SUPPORTED_CHAINS, type SupportedChainId } from "@/lib/constants";
 import { getClient } from "../lib/rpc";
 import { stETHAbi, wstETHAbi } from "../lib/abis/lido";
 import { BaseAdapter, type AdapterConfig, type Position } from "./types";
+import { getLidoApy } from "../services/yields";
 
 // Lido contract addresses
 const LIDO_CONTRACTS = {
@@ -23,9 +24,6 @@ const LIDO_CONTRACTS = {
     wstETH: "0x03b54A6e9a984069379fae1a4fC4dBAE93B3bCCD" as Address,
   },
 } as const;
-
-// Approximate Lido staking APY (could be fetched from API)
-const LIDO_APY = 3.5;
 
 export class LidoAdapter extends BaseAdapter {
   readonly id = "lido";
@@ -54,6 +52,9 @@ export class LidoAdapter extends BaseAdapter {
     const contracts = LIDO_CONTRACTS[chainId as keyof typeof LIDO_CONTRACTS];
     const positions: Position[] = [];
 
+    // Fetch real APY from DeFi Llama
+    const lidoApy = await getLidoApy();
+
     // Only Ethereum has native stETH
     if (chainId === SUPPORTED_CHAINS.ETHEREUM && "stETH" in contracts) {
       const stETHAddress = contracts.stETH as Address;
@@ -76,7 +77,7 @@ export class LidoAdapter extends BaseAdapter {
             coingeckoId: "staked-ether",
             balanceRaw: balance.toString(),
             balance: this.formatBalance(balance, 18),
-            apy: LIDO_APY,
+            apy: lidoApy,
             metadata: {
               isRebasing: true,
             },
@@ -123,7 +124,7 @@ export class LidoAdapter extends BaseAdapter {
             coingeckoId: "wrapped-steth",
             balanceRaw: balance.toString(),
             balance: this.formatBalance(balance, 18),
-            apy: LIDO_APY,
+            apy: lidoApy,
             metadata: {
               isRebasing: false,
               ...(stEthEquivalent && {

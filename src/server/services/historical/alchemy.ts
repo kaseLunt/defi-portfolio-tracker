@@ -3,6 +3,24 @@ import { erc20Abi } from "viem";
 import { getClient } from "@/server/lib/rpc";
 import { type SupportedChainId } from "@/lib/constants";
 import type { TokenBalance } from "./types";
+import { getRateLimiter, sleep } from "@/server/lib/rate-limiter";
+
+// Rate limiter for RPC calls per chain
+// Free RPCs typically allow ~10-25 req/s, but we're conservative
+const rpcRateLimiters = new Map<SupportedChainId, ReturnType<typeof getRateLimiter>>();
+
+function getRpcRateLimiter(chainId: SupportedChainId) {
+  let limiter = rpcRateLimiters.get(chainId);
+  if (!limiter) {
+    // Conservative: 3 req/s per chain to avoid hitting free RPC limits
+    limiter = getRateLimiter(`rpc-${chainId}`, {
+      ratePerSecond: 3,
+      maxBurst: 5,
+    });
+    rpcRateLimiters.set(chainId, limiter);
+  }
+  return limiter;
+}
 
 // Common tokens to check per chain (top tokens by usage)
 // This is a simplified approach - GoldRush returns ALL tokens, this checks known ones
@@ -62,17 +80,30 @@ const COMMON_TOKENS: Record<SupportedChainId, Array<{ address: Address; symbol: 
   ],
 };
 
+// Cache for block numbers to avoid repeated lookups
+const blockNumberCache = new Map<string, bigint>();
+
 /**
- * Get the block number closest to a timestamp using binary search
+ * Get the block number closest to a timestamp using estimation + limited binary search
+ * Uses caching to avoid repeated lookups for similar timestamps
  */
 async function getBlockNumberForTimestamp(
   chainId: SupportedChainId,
   timestamp: Date
 ): Promise<bigint> {
+  // Check cache first (round to nearest hour for cache key)
+  const cacheKey = `${chainId}:${Math.floor(timestamp.getTime() / 3600000) * 3600000}`;
+  const cached = blockNumberCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const client = getClient(chainId);
+  const rateLimiter = getRpcRateLimiter(chainId);
   const targetTime = BigInt(Math.floor(timestamp.getTime() / 1000));
 
-  // Get current block as upper bound
+  // Rate limit the initial block fetch
+  await rateLimiter.acquire();
   const latestBlock = await client.getBlock({ blockTag: "latest" });
 
   // If target is in the future or very recent, use latest
@@ -80,46 +111,46 @@ async function getBlockNumberForTimestamp(
     return latestBlock.number;
   }
 
-  // Binary search for the block
-  let low = 1n;
-  let high = latestBlock.number;
-  let closestBlock = latestBlock.number;
-
   // Estimate starting point based on average block time
   const avgBlockTime = chainId === 1 ? 12n : 2n; // Ethereum ~12s, L2s ~2s
   const timeDiff = latestBlock.timestamp - targetTime;
   const estimatedBlocksBack = timeDiff / avgBlockTime;
-  const estimatedBlock = latestBlock.number - estimatedBlocksBack;
+  let estimatedBlock = latestBlock.number - estimatedBlocksBack;
 
-  if (estimatedBlock > 0n) {
-    low = estimatedBlock - 1000n > 0n ? estimatedBlock - 1000n : 1n;
-    high = estimatedBlock + 1000n < latestBlock.number ? estimatedBlock + 1000n : latestBlock.number;
-  }
+  // Clamp to valid range
+  if (estimatedBlock < 1n) estimatedBlock = 1n;
 
-  // Binary search with limited iterations
-  let iterations = 0;
-  const maxIterations = 20;
+  // For historical queries, the estimation is usually good enough
+  // Only do a few refinement iterations to save RPC calls
+  let closestBlock = estimatedBlock;
+  const maxIterations = 5; // Reduced from 20 to save RPC calls
 
-  while (low <= high && iterations < maxIterations) {
-    iterations++;
-    const mid = (low + high) / 2n;
-
+  for (let i = 0; i < maxIterations; i++) {
     try {
-      const block = await client.getBlock({ blockNumber: mid });
+      await rateLimiter.acquire();
+      const block = await client.getBlock({ blockNumber: closestBlock });
 
-      if (block.timestamp === targetTime) {
-        return mid;
-      } else if (block.timestamp < targetTime) {
-        low = mid + 1n;
-        closestBlock = mid;
-      } else {
-        high = mid - 1n;
+      const diff = block.timestamp - targetTime;
+
+      // If we're within 1 hour, that's close enough for historical data
+      if (diff >= -3600n && diff <= 3600n) {
+        break;
       }
+
+      // Adjust estimate
+      const adjustment = diff / avgBlockTime;
+      closestBlock = closestBlock - adjustment;
+
+      if (closestBlock < 1n) closestBlock = 1n;
+      if (closestBlock > latestBlock.number) closestBlock = latestBlock.number;
     } catch {
-      // Block might not exist, adjust range
-      high = mid - 1n;
+      // On error, just use current estimate
+      break;
     }
   }
+
+  // Cache the result
+  blockNumberCache.set(cacheKey, closestBlock);
 
   return closestBlock;
 }
@@ -127,6 +158,7 @@ async function getBlockNumberForTimestamp(
 /**
  * Fetches historical token balances using RPC calls at a specific block
  * This is a fallback when GoldRush is not available
+ * Uses rate limiting to avoid hitting free RPC limits
  */
 export async function getHistoricalBalancesViaRpc(
   walletAddress: Address,
@@ -134,6 +166,7 @@ export async function getHistoricalBalancesViaRpc(
   timestamp: Date
 ): Promise<TokenBalance[]> {
   const client = getClient(chainId);
+  const rateLimiter = getRpcRateLimiter(chainId);
   const tokens = COMMON_TOKENS[chainId] || [];
 
   if (tokens.length === 0) {
@@ -142,10 +175,11 @@ export async function getHistoricalBalancesViaRpc(
   }
 
   try {
-    // Get block number for this timestamp
+    // Get block number for this timestamp (already rate-limited internally)
     const blockNumber = await getBlockNumberForTimestamp(chainId, timestamp);
 
-    // Fetch native balance
+    // Rate limit the native balance fetch
+    await rateLimiter.acquire();
     const nativeBalance = await client.getBalance({
       address: walletAddress,
       blockNumber,
@@ -166,6 +200,8 @@ export async function getHistoricalBalancesViaRpc(
       });
     }
 
+    // Rate limit the multicall
+    await rateLimiter.acquire();
     // Fetch ERC20 balances using multicall for efficiency
     const balanceResults = await client.multicall({
       contracts: tokens.map((token) => ({

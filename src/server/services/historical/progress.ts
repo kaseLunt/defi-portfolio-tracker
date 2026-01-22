@@ -10,6 +10,8 @@ export interface FetchProgress {
   currentStep: number;
   totalSteps: number;
   currentChain?: string;
+  processedChains: number;
+  totalChains: number;
   processedTimestamps: number;
   totalTimestamps: number;
   startedAt: Date;
@@ -31,8 +33,13 @@ export async function initProgress(
   requestId: string,
   walletAddress: string,
   timeframe: HistoricalTimeframe,
-  totalTimestamps: number
+  totalTimestamps: number,
+  totalChains: number = 5
 ): Promise<void> {
+  // Total steps: chains (30%) + timestamps (60%) + processing (10%)
+  // This gives a more realistic progress feel
+  const totalSteps = totalChains + totalTimestamps + 2; // +2 for init and finalize
+
   const progress: FetchProgress = {
     requestId,
     walletAddress,
@@ -40,7 +47,9 @@ export async function initProgress(
     status: "pending",
     stage: "Initializing...",
     currentStep: 0,
-    totalSteps: totalTimestamps * 2, // balances + prices for each timestamp
+    totalSteps,
+    processedChains: 0,
+    totalChains,
     processedTimestamps: 0,
     totalTimestamps,
     startedAt: new Date(),

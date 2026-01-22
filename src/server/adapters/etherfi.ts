@@ -3,6 +3,7 @@ import { SUPPORTED_CHAINS, type SupportedChainId } from "@/lib/constants";
 import { getClient } from "../lib/rpc";
 import { eETHAbi, weETHAbi } from "../lib/abis/etherfi";
 import { BaseAdapter, type AdapterConfig, type Position } from "./types";
+import { getEtherFiApy } from "../services/yields";
 
 // Ether.fi contract addresses
 const ETHERFI_CONTRACTS = {
@@ -20,9 +21,6 @@ const ETHERFI_CONTRACTS = {
     weETH: "0x04C0599Ae5A44757c0af6F9eC3b93da8976c150A" as Address,
   },
 } as const;
-
-// Approximate Ether.fi staking APY (base staking + EigenLayer points)
-const ETHERFI_APY = 3.8;
 
 export class EtherFiAdapter extends BaseAdapter {
   readonly id = "etherfi";
@@ -55,6 +53,9 @@ export class EtherFiAdapter extends BaseAdapter {
 
     const positions: Position[] = [];
 
+    // Fetch real APY from DeFi Llama
+    const etherfiApy = await getEtherFiApy();
+
     // Only Ethereum mainnet has native eETH
     if (chainId === SUPPORTED_CHAINS.ETHEREUM && "eETH" in contracts) {
       try {
@@ -76,7 +77,7 @@ export class EtherFiAdapter extends BaseAdapter {
             coingeckoId: "ether-fi-staked-eth",
             balanceRaw: balance.toString(),
             balance: this.formatBalance(balance, 18),
-            apy: ETHERFI_APY,
+            apy: etherfiApy,
             metadata: {
               isRebasing: true,
               earnEigenLayerPoints: true,
@@ -134,7 +135,7 @@ export class EtherFiAdapter extends BaseAdapter {
             coingeckoId: "wrapped-eeth",
             balanceRaw: balance.toString(),
             balance: this.formatBalance(balance, 18),
-            apy: ETHERFI_APY,
+            apy: etherfiApy,
             metadata: {
               isRebasing: false,
               earnEigenLayerPoints: true,

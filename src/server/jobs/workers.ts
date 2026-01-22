@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { adapterRegistry } from "../adapters/registry";
 import { getPrices } from "../services/price";
 import { broadcastPriceUpdate, sendNotificationEvent } from "../lib/events";
+import { getActiveWallets, prewarmWalletCache } from "../services/portfolio-fast";
 import type { Address } from "viem";
 import type { SupportedChainId } from "@/lib/constants";
 import { SUPPORTED_CHAINS } from "@/lib/constants";
@@ -446,6 +447,52 @@ async function triggerAlert(
   console.log(`Triggered alert: ${rule.name}`);
 }
 
+// Cache pre-warm worker - refreshes cache for active wallets
+export const cachePrewarmWorker = new Worker(
+  "cache-prewarm",
+  async (job: Job) => {
+    const { walletAddress } = job.data;
+
+    // If specific wallet, prewarm that one
+    if (walletAddress) {
+      console.log(`[Prewarm] Warming cache for ${walletAddress}`);
+      await prewarmWalletCache(walletAddress as Address);
+      return { warmed: 1 };
+    }
+
+    // Otherwise, prewarm all active wallets
+    console.log("[Prewarm] Starting cache prewarm for active wallets...");
+
+    try {
+      const activeWallets = await getActiveWallets();
+      console.log(`[Prewarm] Found ${activeWallets.length} active wallets`);
+
+      if (activeWallets.length === 0) {
+        return { warmed: 0 };
+      }
+
+      // Process wallets with concurrency limit
+      const CONCURRENCY = 3;
+      let warmed = 0;
+
+      for (let i = 0; i < activeWallets.length; i += CONCURRENCY) {
+        const batch = activeWallets.slice(i, i + CONCURRENCY);
+        await Promise.allSettled(
+          batch.map(wallet => prewarmWalletCache(wallet as Address))
+        );
+        warmed += batch.length;
+      }
+
+      console.log(`[Prewarm] Completed warming ${warmed} wallets`);
+      return { warmed };
+    } catch (error) {
+      console.error("[Prewarm] Failed to prewarm caches:", error);
+      throw error;
+    }
+  },
+  { connection, concurrency: 1 }
+);
+
 // Transaction monitor worker
 export const txMonitorWorker = new Worker(
   "tx-monitor",
@@ -493,6 +540,14 @@ export function startWorkers() {
     console.error(`Alert check job ${job?.id} failed:`, error);
   });
 
+  cachePrewarmWorker.on("completed", (job) => {
+    console.log(`Cache prewarm job ${job.id} completed`);
+  });
+
+  cachePrewarmWorker.on("failed", (job, error) => {
+    console.error(`Cache prewarm job ${job?.id} failed:`, error);
+  });
+
   console.log("Background workers started");
 }
 
@@ -504,6 +559,7 @@ export async function stopWorkers() {
     priceUpdateWorker.close(),
     alertCheckWorker.close(),
     txMonitorWorker.close(),
+    cachePrewarmWorker.close(),
   ]);
   console.log("Background workers stopped");
 }

@@ -9,6 +9,10 @@ import { sparkAdapter } from "./spark";
 import { eigenlayerAdapter } from "./eigenlayer";
 import { morphoAdapter } from "./morpho";
 import { pendleAdapter } from "./pendle";
+import { getFromCache, setInCache } from "../lib/redis";
+
+// Cache DeFi positions for 2 minutes (RPC calls are expensive)
+const POSITIONS_CACHE_TTL = 120;
 
 /**
  * Registry of all protocol adapters
@@ -103,8 +107,18 @@ class AdapterRegistry {
 
   /**
    * Get all positions from all protocols across all chains
+   * Results are cached for 2 minutes per wallet
    */
   async getAllPositions(walletAddress: Address): Promise<Position[]> {
+    // Check cache first
+    const cacheKey = `defi-positions:${walletAddress.toLowerCase()}`;
+    const cached = await getFromCache<Position[]>(cacheKey);
+    if (cached) {
+      console.log(`[Adapters] Cache HIT for ${walletAddress.slice(0, 10)}...`);
+      return cached;
+    }
+
+    console.log(`[Adapters] Cache MISS for ${walletAddress.slice(0, 10)}...`);
     const adapters = this.getAll();
     const results = await Promise.allSettled(
       adapters.map((adapter) => adapter.getAllPositions(walletAddress))
@@ -116,6 +130,9 @@ class AdapterRegistry {
         positions.push(...result.value);
       }
     }
+
+    // Cache the result
+    await setInCache(cacheKey, positions, POSITIONS_CACHE_TTL);
 
     return positions;
   }

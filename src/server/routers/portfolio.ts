@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import type { Address } from "viem";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
 import { getPortfolio, syncPositionsToDatabase } from "../services/portfolio";
+import { getTokenBalancesFast, getDefiPositionsFast } from "../services/portfolio-fast";
 import { isSupportedChain } from "../lib/rpc";
 import type { SupportedChainId } from "@/lib/constants";
 
@@ -11,7 +12,75 @@ const walletAddressSchema = z
   .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid wallet address");
 
 export const portfolioRouter = router({
+  /**
+   * FAST: Get token balances only (~600ms)
+   * Returns immediately from cache, refreshes in background if stale
+   */
+  getTokenBalances: publicProcedure
+    .input(
+      z.object({
+        walletAddress: walletAddressSchema,
+        chains: z.array(z.number()).optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const chains = input.chains?.filter(isSupportedChain) as
+        | SupportedChainId[]
+        | undefined;
+
+      const result = await getTokenBalancesFast(input.walletAddress as Address, chains);
+
+      return {
+        ...result,
+        walletAddress: input.walletAddress,
+      };
+    }),
+
+  /**
+   * SMART: Get DeFi positions with smart adapter selection
+   * Only queries protocols where user likely has positions
+   * Requires token balances to determine relevant protocols
+   */
+  getDefiPositions: publicProcedure
+    .input(
+      z.object({
+        walletAddress: walletAddressSchema,
+        chains: z.array(z.number()).optional(),
+        // Token symbols from getTokenBalances (for smart protocol selection)
+        tokenSymbols: z.array(z.string()).optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const chains = input.chains?.filter(isSupportedChain) as
+        | SupportedChainId[]
+        | undefined;
+
+      // Convert token symbols to minimal TokenBalance format for protocol detection
+      const tokenBalances = (input.tokenSymbols || []).map(symbol => ({
+        chainId: 1 as SupportedChainId, // Chain doesn't matter for protocol detection
+        tokenAddress: "",
+        tokenSymbol: symbol,
+        tokenName: "",
+        tokenDecimals: 18,
+        balance: 0,
+        balanceRaw: "0",
+        quoteUsd: 1, // Non-zero to pass dust filter
+      }));
+
+      const result = await getDefiPositionsFast(
+        input.walletAddress as Address,
+        tokenBalances,
+        chains
+      );
+
+      return {
+        ...result,
+        walletAddress: input.walletAddress,
+      };
+    }),
+
   // Get live portfolio for any wallet address (read-only, no auth required)
+  // LEGACY: Use getTokenBalances + getDefiPositions for better UX
   getLivePortfolio: publicProcedure
     .input(
       z.object({

@@ -18,6 +18,12 @@ export interface HistoricalPortfolioResult {
   fetchedAt: Date;
   cacheHit: boolean;
   chainsWithData?: SupportedChainId[]; // Chains that actually had historical data
+  /**
+   * Per-token price history for sparklines
+   * Key format: "chainId:tokenAddress" (lowercase)
+   * Value: array of prices (USD) at each timestamp in dataPoints order
+   */
+  tokenPriceHistory?: Record<string, number[]>;
 }
 
 export interface TokenBalance {

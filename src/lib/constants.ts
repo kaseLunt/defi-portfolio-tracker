@@ -85,11 +85,12 @@ export const STALE_TIMES = {
 } as const;
 
 // Historical portfolio timeframe configurations
+// Optimized for fast loading while maintaining chart smoothness
 export const TIMEFRAME_CONFIGS = {
-  "7d": { days: 7, dataPoints: 28, intervalHours: 6, cacheTtl: 3600 },
-  "30d": { days: 30, dataPoints: 30, intervalHours: 24, cacheTtl: 86400 },
-  "90d": { days: 90, dataPoints: 45, intervalHours: 48, cacheTtl: 86400 * 3 },
-  "1y": { days: 365, dataPoints: 52, intervalHours: 168, cacheTtl: 86400 * 7 },
+  "7d": { days: 7, dataPoints: 14, intervalHours: 12, cacheTtl: 3600 },      // Every 12h - fast initial load
+  "30d": { days: 30, dataPoints: 15, intervalHours: 48, cacheTtl: 86400 },   // Every 2 days
+  "90d": { days: 90, dataPoints: 18, intervalHours: 120, cacheTtl: 86400 * 3 }, // Every 5 days
+  "1y": { days: 365, dataPoints: 24, intervalHours: 336, cacheTtl: 86400 * 7 }, // Every 2 weeks
 } as const;
 
 export type TimeframeConfig = (typeof TIMEFRAME_CONFIGS)[keyof typeof TIMEFRAME_CONFIGS];
