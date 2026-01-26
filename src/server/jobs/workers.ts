@@ -2,11 +2,15 @@ import { Worker, Job } from "bullmq";
 import { prisma } from "../lib/prisma";
 import { adapterRegistry } from "../adapters/registry";
 import { getPrices } from "../services/price";
-import { broadcastPriceUpdate, sendNotificationEvent } from "../lib/events";
+import { broadcastPriceUpdate, sendNotificationEvent, sendTransactionDetected } from "../lib/events";
 import { getActiveWallets, prewarmWalletCache } from "../services/portfolio-fast";
+import { getPythPriceService } from "../services/pyth";
+import { deserializeEnrichedEvent } from "../services/websocket/event-processor";
+import { positionSyncQueue } from "./queues";
 import type { Address } from "viem";
 import type { SupportedChainId } from "@/lib/constants";
 import { SUPPORTED_CHAINS } from "@/lib/constants";
+import type { SerializedEnrichedEvent } from "../services/websocket/types";
 
 // Get Redis URL from environment or use default for development
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
@@ -148,10 +152,19 @@ export const positionSyncWorker = new Worker(
 );
 
 // Price update worker - updates token prices
+// When Pyth is active, this only updates database cache (Pyth handles SSE broadcasts)
+// When Pyth is down, this does full CoinGecko fetch + broadcast
 export const priceUpdateWorker = new Worker(
   "price-update",
   async (job: Job) => {
-    console.log("Updating token prices...");
+    const pythService = getPythPriceService();
+    const pythActive = pythService.isUsingPyth();
+
+    if (pythActive) {
+      console.log("Price update: Pyth active, updating database cache only");
+    } else {
+      console.log("Price update: Using CoinGecko fallback");
+    }
 
     try {
       // Get all active tokens with coingecko IDs
@@ -170,10 +183,10 @@ export const priceUpdateWorker = new Worker(
 
       if (uniqueIds.length === 0) {
         console.log("No tokens to update prices for");
-        return { updated: 0 };
+        return { updated: 0, source: pythActive ? "pyth" : "coingecko" };
       }
 
-      // Fetch prices (this will update the cache)
+      // Fetch prices from CoinGecko (for database persistence)
       const prices = await getPrices(uniqueIds);
 
       // Update price cache in database
@@ -200,22 +213,24 @@ export const priceUpdateWorker = new Worker(
         });
       }
 
-      // Broadcast price updates to connected clients
-      const priceUpdates: Record<string, { usd: number; change24h: number | null }> = {};
-      for (const [coingeckoId, priceEntry] of prices) {
-        priceUpdates[coingeckoId] = {
-          usd: priceEntry.priceUsd,
-          change24h: priceEntry.change24hPct,
-        };
+      // Only broadcast via SSE if Pyth is NOT active
+      // (When Pyth is active, it handles real-time broadcasts)
+      if (!pythActive) {
+        const priceUpdates: Record<string, { usd: number; change24h: number | null }> = {};
+        for (const [coingeckoId, priceEntry] of prices) {
+          priceUpdates[coingeckoId] = {
+            usd: priceEntry.priceUsd,
+            change24h: priceEntry.change24hPct,
+          };
+        }
+
+        if (Object.keys(priceUpdates).length > 0) {
+          await broadcastPriceUpdate(priceUpdates);
+        }
       }
 
-      // Only broadcast if there are prices to update
-      if (Object.keys(priceUpdates).length > 0) {
-        await broadcastPriceUpdate(priceUpdates);
-      }
-
-      console.log(`Updated prices for ${prices.size} tokens`);
-      return { updated: prices.size };
+      console.log(`Updated prices for ${prices.size} tokens (source: ${pythActive ? "pyth+db" : "coingecko"})`);
+      return { updated: prices.size, source: pythActive ? "pyth" : "coingecko" };
     } catch (error) {
       console.error("Failed to update prices:", error);
       throw error;
@@ -509,6 +524,109 @@ export const txMonitorWorker = new Worker(
   { connection, concurrency: 10 }
 );
 
+// WebSocket event worker - processes real-time Transfer events from Alchemy
+export const websocketEventWorker = new Worker(
+  "websocket-event",
+  async (job: Job<SerializedEnrichedEvent>) => {
+    const serializedEvent = job.data;
+    const event = deserializeEnrichedEvent(serializedEvent);
+
+    console.log(
+      `[WS Worker] Processing ${event.type} event for user ${event.userId}`
+    );
+
+    try {
+      // Get token info for enrichment
+      const token = await prisma.token.findFirst({
+        where: {
+          chainId: event.event.chainId,
+          address: event.event.tokenAddress.toLowerCase(),
+        },
+        include: {
+          priceCache: true,
+        },
+      });
+
+      const tokenSymbol = token?.symbol || "Unknown";
+      const tokenDecimals = token?.decimals || 18;
+      const priceUsd = token?.priceCache?.priceUsd || 0;
+
+      // Format the value
+      const valueNum = Number(event.event.value) / Math.pow(10, tokenDecimals);
+      const valueUsd = valueNum * priceUsd;
+
+      // Determine direction
+      const direction = event.type === "transfer_in" ? "in" : "out";
+
+      // Send real-time notification via SSE
+      await sendTransactionDetected(event.userId, {
+        walletAddress: event.walletAddress,
+        direction,
+        chainId: event.event.chainId,
+        tokenAddress: event.event.tokenAddress,
+        tokenSymbol,
+        value: event.event.value.toString(),
+        valueFormatted: valueNum,
+        valueUsd,
+        transactionHash: event.event.transactionHash,
+      });
+
+      // For significant transfers (>$100), create a notification
+      if (valueUsd > 100) {
+        const title = direction === "in"
+          ? `Received ${valueNum.toFixed(4)} ${tokenSymbol}`
+          : `Sent ${valueNum.toFixed(4)} ${tokenSymbol}`;
+
+        const body = `${direction === "in" ? "Received" : "Sent"} $${valueUsd.toFixed(2)} worth of ${tokenSymbol}`;
+
+        await prisma.notification.create({
+          data: {
+            userId: event.userId,
+            title,
+            body,
+            category: "transaction",
+            priority: valueUsd > 1000 ? "high" : "normal",
+            channelsSent: ["inApp"],
+            metadata: {
+              chainId: event.event.chainId,
+              tokenAddress: event.event.tokenAddress,
+              transactionHash: event.event.transactionHash,
+              valueUsd,
+            },
+          },
+        });
+
+        console.log(`[WS Worker] Created notification for $${valueUsd.toFixed(2)} ${tokenSymbol} transfer`);
+      }
+
+      // Queue position sync for the affected wallet
+      await positionSyncQueue.add(
+        "sync-from-event",
+        {
+          userId: event.userId,
+          walletAddress: event.walletAddress,
+          chainIds: [event.event.chainId],
+        },
+        {
+          delay: 5000, // Wait 5s for blockchain confirmation
+          jobId: `sync-${event.userId}-${event.event.transactionHash}`,
+        }
+      );
+
+      return {
+        processed: true,
+        tokenSymbol,
+        valueUsd,
+        direction,
+      };
+    } catch (error) {
+      console.error("[WS Worker] Failed to process event:", error);
+      throw error;
+    }
+  },
+  { connection, concurrency: 10 }
+);
+
 // Start all workers
 export function startWorkers() {
   console.log("Starting background workers...");
@@ -548,6 +666,14 @@ export function startWorkers() {
     console.error(`Cache prewarm job ${job?.id} failed:`, error);
   });
 
+  websocketEventWorker.on("completed", (job) => {
+    console.log(`WebSocket event job ${job.id} completed`);
+  });
+
+  websocketEventWorker.on("failed", (job, error) => {
+    console.error(`WebSocket event job ${job?.id} failed:`, error);
+  });
+
   console.log("Background workers started");
 }
 
@@ -560,6 +686,7 @@ export async function stopWorkers() {
     alertCheckWorker.close(),
     txMonitorWorker.close(),
     cachePrewarmWorker.close(),
+    websocketEventWorker.close(),
   ]);
   console.log("Background workers stopped");
 }

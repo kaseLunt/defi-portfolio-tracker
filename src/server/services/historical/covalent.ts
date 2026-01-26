@@ -13,12 +13,12 @@ import {
 
 const COVALENT_API_KEY = process.env.COVALENT_API_KEY;
 const COVALENT_BASE_URL = "https://api.covalenthq.com/v1";
-const REQUEST_TIMEOUT = 15000; // 15 seconds
+const REQUEST_TIMEOUT = 8000; // 8 seconds - fail fast, show partial data
 
 // GoldRush rate limit: 4 requests per second for free tier
 const goldRushRateLimiter = getRateLimiter("goldrush", {
-  ratePerSecond: 2, // Be conservative to avoid 429s
-  maxBurst: 3,
+  ratePerSecond: 4, // Use full rate limit - we fail fast anyway
+  maxBurst: 5,
 });
 
 // Cache for GoldRush responses to avoid duplicate API calls
@@ -83,9 +83,9 @@ async function fetchGoldRushPortfolio(
           },
         },
         {
-          maxRetries: 3,
-          baseDelayMs: 2000, // Start with 2s delay for 429s
-          maxDelayMs: 30000,
+          maxRetries: 2, // Fail faster - show partial data
+          baseDelayMs: 1500,
+          maxDelayMs: 5000,
           retryStatusCodes: [429, 500, 502, 503, 504],
         }
       );

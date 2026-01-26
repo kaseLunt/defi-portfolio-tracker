@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 interface PriceUpdate {
   prices: Record<string, { usd: number; change24h: number | null }>;
@@ -23,6 +24,34 @@ interface PositionUpdate {
   positionId: string;
   balanceUsd: number;
   changePercent: number;
+}
+
+interface TransactionDetectedUpdate {
+  userId: string;
+  walletAddress: string;
+  direction: "in" | "out";
+  chainId: number;
+  tokenAddress: string;
+  tokenSymbol?: string;
+  value: string;
+  valueFormatted?: number;
+  valueUsd?: number;
+  transactionHash: string;
+  timestamp: number;
+}
+
+// Block explorer URLs by chain ID
+const EXPLORER_URLS: Record<number, string> = {
+  1: "https://etherscan.io",
+  42161: "https://arbiscan.io",
+  10: "https://optimistic.etherscan.io",
+  8453: "https://basescan.org",
+  137: "https://polygonscan.com",
+};
+
+function getExplorerUrl(chainId: number, txHash: string): string {
+  const baseUrl = EXPLORER_URLS[chainId] || "https://etherscan.io";
+  return `${baseUrl}/tx/${txHash}`;
 }
 
 interface RealtimeState {
@@ -136,6 +165,45 @@ export function useRealtime() {
         // Invalidate alert and notification queries
         queryClient.invalidateQueries({ queryKey: ["notification"] });
         queryClient.invalidateQueries({ queryKey: ["alertRules"] });
+      });
+
+      // Handle real-time transaction detected
+      eventSource.addEventListener("transaction:detected", (event) => {
+        const data: TransactionDetectedUpdate = JSON.parse(event.data);
+        console.log("Transaction detected:", data.direction, data.tokenSymbol);
+
+        // Show toast notification
+        const symbol = data.tokenSymbol || "tokens";
+        const amount = data.valueFormatted?.toFixed(4) || "some";
+        const usdValue = data.valueUsd ? `($${data.valueUsd.toFixed(2)})` : "";
+
+        if (data.direction === "in") {
+          toast.success(`Received ${amount} ${symbol} ${usdValue}`, {
+            description: "View transaction on explorer",
+            action: {
+              label: "View",
+              onClick: () => {
+                // Open transaction in block explorer
+                const explorerUrl = getExplorerUrl(data.chainId, data.transactionHash);
+                window.open(explorerUrl, "_blank");
+              },
+            },
+          });
+        } else {
+          toast.info(`Sent ${amount} ${symbol} ${usdValue}`, {
+            description: "View transaction on explorer",
+            action: {
+              label: "View",
+              onClick: () => {
+                const explorerUrl = getExplorerUrl(data.chainId, data.transactionHash);
+                window.open(explorerUrl, "_blank");
+              },
+            },
+          });
+        }
+
+        // Invalidate portfolio queries to refresh balances
+        queryClient.invalidateQueries({ queryKey: ["portfolio"] });
       });
     } catch (error) {
       console.error("Failed to create EventSource:", error);

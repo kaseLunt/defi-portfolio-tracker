@@ -1,9 +1,17 @@
 import { NextRequest } from "next/server";
 import { getSession } from "@/server/lib/siwe";
-import { subscribeClient, type SSEEvent } from "@/server/lib/events";
+import { subscribeClient, initEventSubscriber, type SSEEvent } from "@/server/lib/events";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+// Initialize Redis event subscriber (runs once on module load)
+let subscriberInitialized = false;
+if (!subscriberInitialized) {
+  initEventSubscriber().then(() => {
+    subscriberInitialized = true;
+  });
+}
 
 /**
  * Server-Sent Events endpoint for real-time updates

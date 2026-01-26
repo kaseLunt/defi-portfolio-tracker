@@ -1,5 +1,18 @@
 # OnChain Wealth - Phase 2 & 3 Implementation Plan
 
+## Status Summary
+
+> **Last Updated:** January 2026
+
+### Recently Completed
+
+- [x] **The Graph Integration** - Fast DeFi queries for Aave V3, Compound V3, Lido, EtherFi
+- [x] **HyperSync Historical Data** - Improved historical balance reconstruction
+- [x] **Performance Optimization** - Dashboard load time reduced from 38s to 1-2s
+- [x] **Historical Portfolio Reconstruction (Feature 2.1)** - COMPLETE
+
+---
+
 ## Overview
 
 **Phase 2: Risk Intelligence** - Help users understand and protect their positions
@@ -9,7 +22,9 @@
 
 ## Phase 2: Risk Intelligence
 
-### Feature 2.1: Historical Portfolio Reconstruction
+### Feature 2.1: Historical Portfolio Reconstruction - COMPLETE
+
+**Status:** IMPLEMENTED
 
 **Goal:** Show portfolio value over time for ANY wallet without requiring prior snapshots.
 
@@ -98,11 +113,28 @@ portfolio.getHistoricalValue.query({
 - 24-hour TTL for older data (>7 days ago)
 - Store in Redis as compressed JSON
 
+**Implementation Notes (Completed):**
+- Historical service implemented in `src/server/services/historical/`
+- Supports GoldRush/Covalent, HyperSync, and DeFi Llama price sources
+- Includes data interpolation to handle missing/anomalous values
+- Progress tracking via Redis for long-running requests
+- tRPC endpoint: `history.getPortfolioHistory`
+
 ---
 
-### Feature 2.2: Liquidation Risk Engine
+### Feature 2.2: Liquidation Risk Engine - NEXT PRIORITY
+
+**Status:** NOT STARTED - Recommended next feature
 
 **Goal:** Real-time monitoring of all lending positions with liquidation predictions.
+
+**Why This Is Easier Now:**
+With The Graph integration complete for Aave V3 and Compound V3, we can efficiently query:
+- User account data (health factors, collateral, debt)
+- Reserve configuration (liquidation thresholds)
+- Historical position data for trend analysis
+
+The existing Graph adapters in `src/server/adapters/graph/` can be extended with `getLiquidationData()` methods.
 
 **User Experience:**
 ```
@@ -281,6 +313,8 @@ interface LiquidationAlertRule {
 ---
 
 ### Feature 2.3: Transaction Simulation Engine
+
+**Status:** NOT STARTED
 
 **Goal:** Preview exact transaction outcomes before signing.
 
@@ -478,7 +512,13 @@ simulation.simulate.mutate({
 
 ### Feature 3.1: Unified DeFi Actions
 
+**Status:** NOT STARTED - Benefits from Graph integration
+
 **Goal:** Execute deposits, withdrawals, swaps from one interface.
+
+**Graph Integration Benefits:**
+The Graph adapters can be extended to fetch real-time APY data, making yield comparison instant.
+Current Graph adapters already fetch supply/borrow rates for Aave V3 and Compound V3.
 
 **User Experience:**
 ```
@@ -664,6 +704,8 @@ async function buildBridgeTx(params: {
 ---
 
 ### Feature 3.2: Automation Rules
+
+**Status:** NOT STARTED
 
 **Goal:** Set up automated DeFi actions based on conditions.
 
@@ -858,15 +900,18 @@ automationWorker.process(async () => {
 │  PHASE 2: Risk Intelligence                                 │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  Week 1-2: Historical Portfolio                             │
-│  ├─ Covalent API integration                                │
-│  ├─ DeFi Llama price history integration                    │
-│  ├─ Historical reconstruction service                       │
-│  ├─ Chart component updates                                 │
-│  └─ Caching layer                                           │
+│  Week 1-2: Historical Portfolio - COMPLETE                  │
+│  ├─ [x] Covalent/GoldRush API integration                   │
+│  ├─ [x] DeFi Llama price history integration                │
+│  ├─ [x] Historical reconstruction service                   │
+│  ├─ [x] HyperSync for faster historical data                │
+│  ├─ [x] Data interpolation for missing values               │
+│  ├─ [x] Chart component updates                             │
+│  └─ [x] Redis caching with progress tracking                │
 │                                                             │
-│  Week 3-4: Liquidation Risk Engine                          │
-│  ├─ Extend adapters with getLiquidationData()               │
+│  Week 3-4: Liquidation Risk Engine - NEXT                   │
+│  ├─ Extend Graph adapters with getLiquidationData()         │
+│  │   (Easier now: Aave V3, Compound V3 Graph adapters exist)│
 │  ├─ Liquidation calculation service                         │
 │  ├─ Risk dashboard UI                                       │
 │  ├─ Liquidation alerts integration                          │
@@ -888,6 +933,7 @@ automationWorker.process(async () => {
 │  Week 7-8: Unified Actions (Deposit/Withdraw)               │
 │  ├─ Extend adapters with buildDepositTx(), etc.             │
 │  ├─ Yield comparison service                                │
+│  │   (Faster now: Graph adapters already fetch APY data)    │
 │  ├─ Actions UI                                              │
 │  ├─ Transaction building + signing flow                     │
 │  └─ Simulation integration                                  │
@@ -911,7 +957,7 @@ automationWorker.process(async () => {
 
 ---
 
-## File Structure (Final)
+## File Structure (Current & Planned)
 
 ```
 src/server/
@@ -924,30 +970,45 @@ src/server/
 │   ├── spark.ts                   # + getLiquidationData, buildDepositTx
 │   ├── lido.ts                    # + buildDepositTx
 │   ├── etherfi.ts                 # + buildDepositTx
-│   └── pendle.ts
+│   ├── pendle.ts
+│   └── graph/                     # IMPLEMENTED: The Graph adapters
+│       ├── index.ts               # Exports all Graph adapters
+│       ├── client.ts              # Graph client with caching
+│       └── adapters/
+│           ├── aave-v3.ts         # Fast Aave queries via subgraph
+│           ├── compound-v3.ts     # Fast Compound queries via subgraph
+│           ├── lido.ts            # Lido staking via subgraph
+│           └── etherfi.ts         # EtherFi via subgraph
 │
 ├── services/
 │   ├── portfolio.ts
 │   ├── price.ts
-│   ├── historical.ts              # NEW: Historical reconstruction
-│   ├── liquidation.ts             # NEW: Liquidation calculations
-│   ├── simulation.ts              # NEW: Transaction simulation
-│   ├── routing.ts                 # NEW: Route optimization
-│   └── automation.ts              # NEW: Rule evaluation
+│   ├── historical/                # IMPLEMENTED: Historical reconstruction
+│   │   ├── index.ts               # Main orchestrator
+│   │   ├── covalent.ts            # GoldRush API client
+│   │   ├── defillama.ts           # DeFi Llama price history
+│   │   ├── hypersync.ts           # HyperSync for fast historical data
+│   │   ├── progress.ts            # Progress tracking
+│   │   ├── types.ts               # Type definitions
+│   │   └── utils.ts               # Helpers
+│   ├── liquidation.ts             # TODO: Liquidation calculations
+│   ├── simulation.ts              # TODO: Transaction simulation
+│   ├── routing.ts                 # TODO: Route optimization
+│   └── automation.ts              # TODO: Rule evaluation
 │
 ├── lib/
-│   ├── covalent.ts                # NEW: Covalent API
-│   ├── defillama.ts               # NEW: DeFi Llama prices
-│   ├── tenderly.ts                # NEW: Tenderly simulation
-│   ├── oneinch.ts                 # NEW: 1inch swap API
-│   └── lifi.ts                    # NEW: Li.Fi bridge API
+│   ├── redis.ts                   # IMPLEMENTED: Caching
+│   ├── tenderly.ts                # TODO: Tenderly simulation
+│   ├── oneinch.ts                 # TODO: 1inch swap API
+│   └── lifi.ts                    # TODO: Li.Fi bridge API
 │
 ├── routers/
-│   ├── portfolio.ts               # + getHistoricalValue
-│   ├── risk.ts                    # NEW: Liquidation endpoints
-│   ├── simulation.ts              # NEW: Simulation endpoints
-│   ├── actions.ts                 # NEW: Action building
-│   └── automation.ts              # NEW: Rule CRUD
+│   ├── portfolio.ts
+│   ├── history.ts                 # IMPLEMENTED: getPortfolioHistory, getProgress
+│   ├── risk.ts                    # TODO: Liquidation endpoints
+│   ├── simulation.ts              # TODO: Simulation endpoints
+│   ├── actions.ts                 # TODO: Action building
+│   └── automation.ts              # TODO: Rule CRUD
 │
 └── jobs/
     ├── workers.ts                 # + automation worker
@@ -999,10 +1060,34 @@ src/components/
 
 ## Success Metrics
 
-| Feature | Metric | Target |
-|---------|--------|--------|
-| Historical Portfolio | Time to load 30d chart | < 3 seconds |
-| Liquidation Monitor | Alert before liquidation | > 95% accuracy |
-| Transaction Simulation | Simulation accuracy | > 99% match actual |
-| Unified Actions | Successful transactions | > 98% success rate |
-| Automation Rules | Rule trigger accuracy | > 99% correct triggers |
+| Feature | Metric | Target | Status |
+|---------|--------|--------|--------|
+| Historical Portfolio | Time to load 30d chart | < 3 seconds | ACHIEVED (1-2s) |
+| Historical Portfolio | Performance improvement | Significant | ACHIEVED (38s -> 1-2s) |
+| Liquidation Monitor | Alert before liquidation | > 95% accuracy | NOT STARTED |
+| Transaction Simulation | Simulation accuracy | > 99% match actual | NOT STARTED |
+| Unified Actions | Successful transactions | > 98% success rate | NOT STARTED |
+| Automation Rules | Rule trigger accuracy | > 99% correct triggers | NOT STARTED |
+
+---
+
+## Infrastructure Already in Place
+
+These components were built during the historical feature work and benefit future features:
+
+1. **The Graph Integration** (`src/server/adapters/graph/`)
+   - Fast, indexed queries for Aave V3, Compound V3, Lido, EtherFi
+   - Reduces RPC calls significantly
+   - Makes liquidation data fetching trivial
+
+2. **HyperSync** (`src/server/services/historical/hypersync.ts`)
+   - Ultra-fast historical blockchain data
+   - Useful for transaction history in automation features
+
+3. **Redis Caching** (`src/server/lib/redis.ts`)
+   - Production-ready caching infrastructure
+   - Progress tracking for long-running operations
+
+4. **DeFi Llama Integration** (`src/server/services/historical/defillama.ts`)
+   - Historical price data
+   - Yield/TVL data (already used elsewhere)

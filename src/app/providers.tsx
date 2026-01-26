@@ -16,7 +16,11 @@ function getBaseUrl() {
 }
 
 // Context to share wallet address with components
-const WalletContext = createContext<{ address: string | undefined }>({
+interface WalletContextType {
+  address: string | undefined;
+}
+
+const WalletContext = createContext<WalletContextType>({
   address: undefined,
 });
 

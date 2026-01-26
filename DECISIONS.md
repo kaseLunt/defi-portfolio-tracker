@@ -983,4 +983,152 @@ startedAt: progress.startedAt instanceof Date
 
 ---
 
-*Document Last Updated: January 21, 2025 (Session 5)*
+---
+
+## January 23, 2025 - The Graph for DeFi Position Queries
+
+**Context**: RPC-based protocol adapters were taking approximately 38 seconds to query positions across 7 protocols. Each adapter made multiple `eth_call` requests to read contract state, and network latency accumulated significantly.
+
+**Options Considered**:
+1. **Optimize RPC calls** - Batch calls, use multicall contracts
+2. **Cache more aggressively** - Longer TTLs, background refresh
+3. **The Graph subgraphs** - Pre-indexed data via GraphQL
+4. **Hybrid indexer** - Self-hosted indexing with Ponder or similar
+
+**Decision**: Implement Graph-accelerated adapters using The Graph subgraphs
+
+**Rationale**:
+- The Graph provides pre-indexed, queryable data for major DeFi protocols
+- Single GraphQL query replaces dozens of RPC calls
+- ~25x faster queries (38s -> ~1.5s for full portfolio)
+- 100K queries/month free tier sufficient for demo/development
+- Hosted subgraphs maintained by protocol teams (Aave, Compound, Lido, etc.)
+- Can still fall back to RPC if Graph is unavailable
+
+**Implementation**:
+```typescript
+// src/server/adapters/aave-v3-graph.ts
+const AAVE_SUBGRAPH = 'https://api.thegraph.com/subgraphs/name/aave/protocol-v3';
+
+async function getPositions(walletAddress: string): Promise<Position[]> {
+  const query = `{
+    userReserves(where: { user: "${walletAddress.toLowerCase()}" }) {
+      reserve { symbol underlyingAsset }
+      currentATokenBalance
+      currentVariableDebt
+    }
+  }`;
+  // Single query returns all positions
+}
+```
+
+**Consequences**:
+- ~25x faster position queries
+- 100K queries/month free tier covers reasonable usage
+- Dependent on The Graph hosted service availability
+- Need Graph-specific adapters alongside RPC adapters
+- Some protocols may not have maintained subgraphs
+
+---
+
+## January 23, 2025 - Graph Adapter Pattern
+
+**Context**: With The Graph providing faster queries, we need a pattern that uses Graph when available but gracefully falls back to RPC when Graph is unavailable or returns errors.
+
+**Options Considered**:
+1. **Separate adapter classes** - GraphAaveAdapter vs RpcAaveAdapter, chosen at config time
+2. **Decorator pattern** - Wrap RPC adapter with Graph layer
+3. **Internal fallback** - Graph adapter extends BaseAdapter, handles fallback internally
+4. **Registry-level fallback** - Registry tries Graph first, falls back to RPC
+
+**Decision**: Graph adapters extend BaseAdapter, internally fall back to RPC on failure
+
+**Rationale**:
+- Transparent to consumers - registry and portfolio service unchanged
+- Fallback is immediate, no additional latency on Graph success
+- Each adapter encapsulates its own reliability logic
+- Easy to test Graph vs RPC independently
+- Can add per-protocol fallback heuristics if needed
+
+**Implementation**:
+```typescript
+// src/server/adapters/aave-v3-graph.ts
+export class AaveV3GraphAdapter extends BaseAdapter {
+  private rpcAdapter = new AaveV3RpcAdapter();
+
+  async getPositions(wallet: string, chainId: number): Promise<Position[]> {
+    try {
+      return await this.querySubgraph(wallet, chainId);
+    } catch (error) {
+      console.warn(`Graph query failed, falling back to RPC: ${error}`);
+      return this.rpcAdapter.getPositions(wallet, chainId);
+    }
+  }
+}
+```
+
+**Consequences**:
+- Consumers unaware of Graph vs RPC distinction
+- Graceful degradation if The Graph is down
+- Slightly increased bundle size (both implementations loaded)
+- Need to maintain both Graph and RPC implementations
+- Fallback adds latency only when Graph fails
+
+---
+
+## January 23, 2025 - HyperSync Backward Reconstruction
+
+**Context**: Historical portfolio reconstruction initially attempted to build balances forward from transfer events (starting from zero and applying each transfer). This approach failed for wallets that had pre-existing balances before our tracked time window.
+
+**Options Considered**:
+1. **Forward reconstruction** - Start from block 0, apply all transfers (requires full history)
+2. **Archive node snapshots** - Query balanceOf at each timestamp (slow, expensive)
+3. **Backward reconstruction** - Use current balance as anchor, work backwards
+4. **Third-party APIs only** - Rely entirely on Covalent/GoldRush historical endpoints
+
+**Decision**: Use current balance as anchor, work backwards through transfer events with HyperSync
+
+**Rationale**:
+- Current balance is known accurately (single RPC call)
+- Transfer events are indexed efficiently by HyperSync
+- Working backwards: `balance_at_block_N = current_balance - sum(transfers_after_N)`
+- No assumption about wallet's history before our window
+- HyperSync is fast for event queries across large block ranges
+- Matches how users think about their portfolio (what I have now, what I had before)
+
+**Implementation**:
+```typescript
+// src/server/services/historical/hypersync.ts
+async function reconstructBalanceAtBlock(
+  wallet: string,
+  token: string,
+  targetBlock: number
+): Promise<bigint> {
+  const currentBalance = await rpc.balanceOf(token, wallet);
+  const transfers = await hypersync.getTransfers({
+    token,
+    wallet,
+    fromBlock: targetBlock,
+    toBlock: 'latest'
+  });
+
+  // Work backwards: subtract outgoing, add incoming
+  let balance = currentBalance;
+  for (const tx of transfers) {
+    if (tx.to === wallet) balance -= tx.amount;   // Undo incoming
+    if (tx.from === wallet) balance += tx.amount; // Undo outgoing
+  }
+  return balance;
+}
+```
+
+**Consequences**:
+- Accurate historical balances regardless of wallet age
+- Fast reconstruction using HyperSync event indexing
+- Works for any wallet without needing full transaction history from genesis
+- Requires current balance to be accurate (verified at query time)
+- HyperSync dependency for efficient event queries
+
+---
+
+*Document Last Updated: January 23, 2025 (Session 6)*

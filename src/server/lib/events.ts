@@ -52,11 +52,29 @@ export interface AlertTriggeredEvent {
   };
 }
 
+export interface TransactionDetectedEvent {
+  type: "transaction:detected";
+  data: {
+    userId: string;
+    walletAddress: string;
+    direction: "in" | "out";
+    chainId: number;
+    tokenAddress: string;
+    tokenSymbol?: string;
+    value: string;
+    valueFormatted?: number;
+    valueUsd?: number;
+    transactionHash: string;
+    timestamp: number;
+  };
+}
+
 export type SSEEvent =
   | PriceUpdateEvent
   | NotificationEvent
   | PositionUpdateEvent
-  | AlertTriggeredEvent;
+  | AlertTriggeredEvent
+  | TransactionDetectedEvent;
 
 // Redis pub/sub channel
 const EVENTS_CHANNEL = "onchain-wealth:events";
@@ -199,6 +217,34 @@ export async function sendPositionUpdate(
       positionId,
       balanceUsd,
       changePercent,
+    },
+  };
+  await publishToUser(userId, event);
+}
+
+/**
+ * Send transaction detected event to specific user
+ */
+export async function sendTransactionDetected(
+  userId: string,
+  data: {
+    walletAddress: string;
+    direction: "in" | "out";
+    chainId: number;
+    tokenAddress: string;
+    tokenSymbol?: string;
+    value: string;
+    valueFormatted?: number;
+    valueUsd?: number;
+    transactionHash: string;
+  }
+) {
+  const event: TransactionDetectedEvent = {
+    type: "transaction:detected",
+    data: {
+      ...data,
+      userId,
+      timestamp: Date.now(),
     },
   };
   await publishToUser(userId, event);

@@ -313,6 +313,7 @@ export function ValueChart({
           <div className="h-[200px] sm:h-[260px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
+                key={timeframe} // Force clean re-render on timeframe change
                 data={chartData}
                 margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
               >

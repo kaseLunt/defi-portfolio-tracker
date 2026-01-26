@@ -11,10 +11,30 @@
 import "dotenv/config";
 import { startWorkers, stopWorkers } from "./workers";
 import { initScheduledJobs } from "./queues";
+import { initializePythPrices, shutdownPythPrices } from "../services/pyth";
+import { initializeWebSocketService, shutdownWebSocketService } from "../services/websocket";
 
 async function main() {
   console.log("Starting OnChain Wealth background workers...");
   console.log(`Redis URL: ${process.env.REDIS_URL || "redis://localhost:6379"}`);
+
+  // Initialize Pyth price streaming (real-time prices via WebSocket)
+  console.log("Initializing Pyth Network price streaming...");
+  try {
+    await initializePythPrices();
+    console.log("Pyth price streaming initialized");
+  } catch (error) {
+    console.error("Failed to initialize Pyth (will use CoinGecko fallback):", error);
+  }
+
+  // Initialize Alchemy WebSocket service (real-time on-chain events)
+  console.log("Initializing Alchemy WebSocket service...");
+  try {
+    await initializeWebSocketService();
+    console.log("Alchemy WebSocket service initialized");
+  } catch (error) {
+    console.error("Failed to initialize Alchemy WebSocket:", error);
+  }
 
   // Start workers
   startWorkers();
@@ -28,6 +48,8 @@ async function main() {
   // Handle graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`\nReceived ${signal}, shutting down...`);
+    await shutdownWebSocketService();
+    await shutdownPythPrices();
     await stopWorkers();
     process.exit(0);
   };

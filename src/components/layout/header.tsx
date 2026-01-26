@@ -6,14 +6,13 @@ import { usePathname } from "next/navigation";
 import { Menu, X, Hexagon, ChevronRight } from "lucide-react";
 import { ConnectButton } from "@/components/wallet/connect-button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { PriceTicker } from "@/components/layout/price-ticker";
 import { useWalletContext } from "@/app/providers";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/portfolio", label: "Portfolio" },
-  { href: "/yield", label: "Yield" },
-  { href: "/transactions", label: "Activity" },
+  { href: "/etherfi", label: "Ether.Fi", accent: true },
   { href: "/alerts", label: "Alerts" },
 ];
 
@@ -77,7 +76,9 @@ export function Header() {
           {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center gap-1">
             {NAV_ITEMS.map((item) => {
-              const isActive = pathname === item.href;
+              // Check if current path matches the nav item or is a sub-route
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const isAccent = "accent" in item && item.accent;
               return (
                 <Link
                   key={item.href}
@@ -86,7 +87,9 @@ export function Header() {
                     "relative px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200",
                     isActive
                       ? "text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
+                      : isAccent
+                        ? "text-[#735CFF] hover:text-[#8F7AFF]"
+                        : "text-muted-foreground hover:text-foreground"
                   )}
                 >
                   {item.label}
@@ -95,7 +98,8 @@ export function Header() {
                   )}
                   {isActive && (
                     <span
-                      className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1/2 h-[2px] rounded-full bg-primary"
+                      className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1/2 h-[2px] rounded-full"
+                      style={{ backgroundColor: isAccent ? "#735CFF" : "hsl(var(--primary))" }}
                     />
                   )}
                 </Link>
@@ -105,6 +109,7 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <PriceTicker />
           <NotificationBell userId={address} />
           <ConnectButton />
         </div>
@@ -115,7 +120,9 @@ export function Header() {
         <div className="lg:hidden absolute top-full left-0 right-0 bg-background/95 backdrop-blur-xl border-b border-border animate-in">
           <nav className="container py-4 space-y-1">
             {NAV_ITEMS.map((item, index) => {
-              const isActive = pathname === item.href;
+              // Check if current path matches the nav item or is a sub-route
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const isAccent = "accent" in item && item.accent;
               return (
                 <Link
                   key={item.href}
@@ -125,7 +132,9 @@ export function Header() {
                     "flex items-center justify-between px-4 py-3.5 rounded-xl text-sm font-medium transition-all animate-in",
                     isActive
                       ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                      : isAccent
+                        ? "text-[#735CFF] hover:bg-[#735CFF]/10"
+                        : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                   )}
                   style={{ animationDelay: `${index * 30}ms` }}
                 >
@@ -133,7 +142,7 @@ export function Header() {
                   <ChevronRight
                     className={cn(
                       "h-4 w-4 transition-transform",
-                      isActive && "text-primary"
+                      isActive && (isAccent ? "text-[#735CFF]" : "text-primary")
                     )}
                   />
                 </Link>

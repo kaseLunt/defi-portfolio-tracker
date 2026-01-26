@@ -4,6 +4,8 @@ import { portfolioRouter } from "./portfolio";
 import { notificationRouter } from "./notification";
 import { priceRouter } from "./price";
 import { historyRouter } from "./history";
+import { etherfiRouter } from "./etherfi";
+import { yieldsRouter } from "./yields";
 
 export const appRouter = router({
   user: userRouter,
@@ -11,6 +13,8 @@ export const appRouter = router({
   notification: notificationRouter,
   price: priceRouter,
   history: historyRouter,
+  etherfi: etherfiRouter,
+  yields: yieldsRouter,
 });
 
 export type AppRouter = typeof appRouter;

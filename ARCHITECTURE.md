@@ -47,7 +47,8 @@ A full-stack Web3 application enabling users to monitor, optimize, and manage th
 | Technology | Purpose | Rationale |
 |------------|---------|-----------|
 | **Alchemy / Infura** | RPC providers | Reliable, enhanced APIs |
-| **The Graph** | Indexed data | Historical data, complex queries |
+| **The Graph** | Indexed DeFi positions | ~25x faster queries vs RPC for Aave, Compound, Lido, EtherFi |
+| **Envio HyperSync** | Historical token balances | Free, fast transfer event indexing for balance reconstruction |
 | **Tenderly** | Simulation | Transaction preview before signing |
 | **WalletConnect** | Multi-wallet | Support all major wallets |
 
@@ -122,12 +123,18 @@ A full-stack Web3 application enabling users to monitor, optimize, and manage th
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
 │  │   PostgreSQL    │  │     Redis       │  │   The Graph     │              │
 │  │                 │  │                 │  │                 │              │
-│  │ - Users         │  │ - Price Cache   │  │ - Historical    │              │
-│  │ - Positions     │  │ - Session       │  │   positions     │              │
-│  │ - Transactions  │  │ - Pub/Sub       │  │ - Protocol      │              │
-│  │ - Alerts        │  │ - Rate Limits   │  │   events        │              │
+│  │ - Users         │  │ - Price Cache   │  │ - DeFi positions│              │
+│  │ - Positions     │  │ - Session       │  │   (Aave, Lido,  │              │
+│  │ - Transactions  │  │ - Pub/Sub       │  │   Compound,     │              │
+│  │ - Alerts        │  │ - Rate Limits   │  │   EtherFi)      │              │
 │  │ - Preferences   │  │ - Job Queue     │  │                 │              │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘              │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                        Envio HyperSync                               │    │
+│  │   - Historical token balances     - Transfer event indexing          │    │
+│  │   - Backward balance reconstruction from current state               │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
@@ -1027,155 +1034,220 @@ interface TxBuilderProps {
 
 ### 7.1 Protocol Adapter Pattern
 
+The adapter system supports two modes: **Graph-accelerated** (fast, ~100-500ms) and **RPC-based** (fallback, ~3-8s).
+
 ```typescript
-// src/server/adapters/base.ts
+// src/server/adapters/types.ts
 export interface ProtocolAdapter {
-  slug: string;
+  id: string;
   name: string;
-  supportedChains: number[];
+  category: 'lending' | 'staking' | 'restaking' | 'yield';
 
   // Read operations
-  getPositions(address: string, chainId: number): Promise<Position[]>;
-  getCurrentApy(chainId: number, tokenAddress: string): Promise<ApyData>;
-  getTvl(chainId: number): Promise<number>;
-
-  // Transaction building
-  buildDeposit(params: DepositParams): Promise<TransactionRequest>;
-  buildWithdraw(params: WithdrawParams): Promise<TransactionRequest>;
-  buildClaim(params: ClaimParams): Promise<TransactionRequest>;
+  getPositions(address: Address, chainId: SupportedChainId): Promise<Position[]>;
+  getAllPositions(address: Address): Promise<Position[]>;
+  supportsChain(chainId: SupportedChainId): boolean;
 }
 
-// src/server/adapters/aave-v3.ts
-export class AaveV3Adapter implements ProtocolAdapter {
-  slug = 'aave-v3';
-  name = 'Aave V3';
-  supportedChains = [1, 137, 42161, 10, 8453];
+// Base adapter class with common functionality
+export abstract class BaseAdapter implements ProtocolAdapter {
+  abstract readonly id: string;
+  abstract readonly name: string;
+  abstract readonly category: ProtocolCategory;
+  abstract readonly config: AdapterConfig;
 
-  private getPoolContract(chainId: number) {
-    const address = AAVE_POOL_ADDRESSES[chainId];
-    return getContract({
-      address,
-      abi: aavePoolAbi,
-      client: getClient(chainId),
-    });
+  supportsChain(chainId: SupportedChainId): boolean {
+    return this.config.supportedChains.includes(chainId);
   }
 
-  async getPositions(address: string, chainId: number): Promise<Position[]> {
-    const pool = this.getPoolContract(chainId);
-    const userData = await pool.read.getUserAccountData([address]);
-    const reserves = await pool.read.getReservesList();
+  formatBalance(rawBalance: bigint, decimals: number): number {
+    return Number(rawBalance) / Math.pow(10, decimals);
+  }
+}
 
-    const positions: Position[] = [];
+### 7.1.1 Graph-Accelerated Adapters
 
-    for (const reserve of reserves) {
-      const aTokenBalance = await this.getATokenBalance(address, reserve, chainId);
-      const debtBalance = await this.getDebtBalance(address, reserve, chainId);
+When `USE_GRAPH_ADAPTERS=true`, the system uses The Graph subgraphs for ~25x faster DeFi position queries.
 
-      if (aTokenBalance > 0n) {
-        positions.push({
-          protocol: this.slug,
-          chainId,
-          type: 'supply',
-          token: reserve,
-          balance: aTokenBalance,
-          // ... additional data
-        });
+**Graph Adapter Structure** (`src/server/adapters/graph/`):
+```
+graph/
+├── client.ts           # Centralized GraphQL client with subgraph IDs
+├── index.ts            # Exports all Graph adapters
+└── adapters/
+    ├── aave-v3.ts      # Aave V3 positions via Graph
+    ├── compound-v3.ts  # Compound V3 positions via Graph
+    ├── lido.ts         # Lido staking via Graph
+    └── etherfi.ts      # EtherFi positions via Graph
+```
+
+**Graph Client** (`src/server/adapters/graph/client.ts`):
+```typescript
+// Subgraph deployment IDs per protocol per chain
+export const SUBGRAPH_IDS: Record<string, Partial<Record<SupportedChainId, string>>> = {
+  "aave-v3": {
+    [SUPPORTED_CHAINS.ETHEREUM]: "Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g",
+    [SUPPORTED_CHAINS.ARBITRUM]: "DLuE98kEb5pQNXAcKFQGQgfSQ57Xdou4jnVbAEqMfy3B",
+    // ... more chains
+  },
+  "lido": { [SUPPORTED_CHAINS.ETHEREUM]: "HXfMc1jPHfFQoccWd7VMv66km75FoxVHDMvsJj5vG5vf" },
+  "compound-v3": { /* ... */ },
+  "morpho": { /* ... */ },
+  "pendle": { /* ... */ },
+  "etherfi-market": { /* ... */ },
+};
+
+// Get or create GraphQL client for a protocol on a chain
+export function getGraphClient(protocol: string, chainId: SupportedChainId): GraphQLClient | null;
+
+// Execute query with error handling (returns null on failure for graceful fallback)
+export async function executeGraphQuery<T>(client: GraphQLClient, query: string, variables?: Record<string, unknown>): Promise<T | null>;
+```
+
+**Graph Adapter Example** (Aave V3):
+```typescript
+// src/server/adapters/graph/adapters/aave-v3.ts
+export class AaveV3GraphAdapter extends BaseAdapter {
+  readonly id = "aave-v3";
+
+  async getPositions(walletAddress: Address, chainId: SupportedChainId): Promise<Position[]> {
+    // Try Graph first if enabled
+    if (USE_GRAPH_ADAPTERS) {
+      const graphPositions = await this.getPositionsFromGraph(walletAddress, chainId);
+      if (graphPositions !== null) {
+        return graphPositions; // ~100-500ms
       }
-
-      if (debtBalance > 0n) {
-        positions.push({
-          protocol: this.slug,
-          chainId,
-          type: 'borrow',
-          token: reserve,
-          balance: debtBalance,
-          // ... additional data
-        });
-      }
+      console.log(`[Graph:Aave] Chain ${chainId}: Falling back to RPC`);
     }
+    // Fallback to RPC adapter (~3-8s)
+    return rpcAdapter.getPositions(walletAddress, chainId);
+  }
 
+  private async getPositionsFromGraph(walletAddress: Address, chainId: SupportedChainId): Promise<Position[] | null> {
+    const client = getGraphClient("aave-v3", chainId);
+    if (!client) return null;
+
+    const response = await executeGraphQuery<UserReservesResponse>(
+      client,
+      USER_RESERVES_QUERY,
+      { user: walletAddress.toLowerCase() }
+    );
+
+    if (!response) return null;
+    // Parse response into Position[] ...
+  }
+}
+```
+
+### 7.1.2 Adapter Registry
+
+The registry conditionally uses Graph or RPC adapters based on `USE_GRAPH_ADAPTERS`:
+
+```typescript
+// src/server/adapters/registry.ts
+class AdapterRegistry {
+  constructor() {
+    if (USE_GRAPH_ADAPTERS) {
+      // Graph-accelerated adapters (with internal RPC fallback)
+      this.register(aaveV3GraphAdapter);
+      this.register(compoundV3GraphAdapter);
+      this.register(lidoGraphAdapter);
+      this.register(etherfiGraphAdapter);
+
+      // Protocols without Graph subgraphs (RPC only)
+      this.register(sparkAdapter);
+      this.register(eigenlayerAdapter);
+      this.register(morphoAdapter);
+      this.register(pendleAdapter);
+    } else {
+      // All RPC-based adapters
+      this.register(lidoAdapter);
+      this.register(etherfiAdapter);
+      // ... more RPC adapters
+    }
+  }
+
+  // Get all positions with caching (2 min TTL)
+  async getAllPositions(walletAddress: Address): Promise<Position[]> {
+    const cacheKey = `defi-positions:${walletAddress.toLowerCase()}`;
+    const cached = await getFromCache<Position[]>(cacheKey);
+    if (cached) return cached;
+
+    // Fetch from all adapters in parallel with graceful degradation
+    const results = await Promise.allSettled(
+      this.getAll().map(adapter => adapter.getAllPositions(walletAddress))
+    );
+
+    const positions = results
+      .filter(r => r.status === "fulfilled")
+      .flatMap(r => r.value);
+
+    await setInCache(cacheKey, positions, 120);
     return positions;
   }
-
-  async buildDeposit(params: DepositParams): Promise<TransactionRequest> {
-    const pool = this.getPoolContract(params.chainId);
-
-    // Check if approval is needed
-    const allowance = await this.checkAllowance(
-      params.token,
-      params.userAddress,
-      pool.address,
-      params.chainId
-    );
-
-    const transactions: TransactionRequest[] = [];
-
-    if (allowance < params.amount) {
-      transactions.push({
-        to: params.token,
-        data: encodeFunctionData({
-          abi: erc20Abi,
-          functionName: 'approve',
-          args: [pool.address, params.amount],
-        }),
-      });
-    }
-
-    transactions.push({
-      to: pool.address,
-      data: encodeFunctionData({
-        abi: aavePoolAbi,
-        functionName: 'supply',
-        args: [params.token, params.amount, params.userAddress, 0],
-      }),
-    });
-
-    return transactions;
-  }
-
-  // ... other methods
 }
-
-// src/server/adapters/registry.ts
-export class ProtocolRegistry {
-  private adapters: Map<string, ProtocolAdapter> = new Map();
-
-  register(adapter: ProtocolAdapter) {
-    this.adapters.set(adapter.slug, adapter);
-  }
-
-  get(slug: string): ProtocolAdapter | undefined {
-    return this.adapters.get(slug);
-  }
-
-  getForChain(chainId: number): ProtocolAdapter[] {
-    return Array.from(this.adapters.values())
-      .filter(a => a.supportedChains.includes(chainId));
-  }
-
-  async getAllPositions(address: string, chainIds: number[]): Promise<Position[]> {
-    const positionPromises = chainIds.flatMap(chainId =>
-      this.getForChain(chainId).map(adapter =>
-        adapter.getPositions(address, chainId).catch(err => {
-          console.error(`Failed to fetch ${adapter.slug} positions:`, err);
-          return [];
-        })
-      )
-    );
-
-    const results = await Promise.all(positionPromises);
-    return results.flat();
-  }
-}
-
-// Initialize registry
-export const protocolRegistry = new ProtocolRegistry();
-protocolRegistry.register(new AaveV3Adapter());
-protocolRegistry.register(new LidoAdapter());
-protocolRegistry.register(new CompoundV3Adapter());
-protocolRegistry.register(new UniswapV3Adapter());
-// ... more adapters
 ```
+
+### 7.1.3 Envio HyperSync for Historical Data
+
+HyperSync (`src/server/services/historical/hypersync.ts`) provides fast, free access to historical token transfer events for balance reconstruction.
+
+**Key Features:**
+- **Backward Balance Reconstruction**: Uses current balances as anchor and works backwards through transfer events
+- **Fast Block Estimation**: Estimates block numbers from timestamps using average block times (no API calls)
+- **Parallel Queries**: Fetches incoming and outgoing transfers simultaneously
+
+```typescript
+// src/server/services/historical/hypersync.ts
+
+// HyperSync endpoints per chain
+const HYPERSYNC_ENDPOINTS: Record<SupportedChainId, string> = {
+  1: "https://eth.hypersync.xyz",
+  42161: "https://arbitrum.hypersync.xyz",
+  10: "https://optimism.hypersync.xyz",
+  8453: "https://base.hypersync.xyz",
+  137: "https://polygon.hypersync.xyz",
+};
+
+// Average block times for fast estimation
+const BLOCK_TIMES: Record<SupportedChainId, number> = {
+  1: 12,       // Ethereum: 12s
+  42161: 0.25, // Arbitrum: 250ms
+  10: 2,       // Optimism: 2s
+  8453: 2,     // Base: 2s
+  137: 2,      // Polygon: 2s
+};
+
+// Fast block estimation (no API calls)
+export function estimateBlockForTimestamp(
+  chainId: SupportedChainId,
+  timestamp: Date,
+  currentBlock: number
+): number {
+  const secondsAgo = Math.floor((Date.now() - timestamp.getTime()) / 1000);
+  const blocksAgo = Math.floor(secondsAgo / BLOCK_TIMES[chainId]);
+  return Math.max(0, currentBlock - blocksAgo);
+}
+
+// Bulk historical balances using backward reconstruction
+export async function getBulkHistoricalBalancesViaHyperSync(
+  walletAddress: Address,
+  chainId: SupportedChainId,
+  timestamps: Date[],
+  currentBalances?: TokenBalance[] // Anchor point
+): Promise<Map<number, TokenBalance[]>> {
+  // 1. Fetch all transfer events from earliest timestamp to now
+  // 2. Start with current balances
+  // 3. Process timestamps NEWEST to OLDEST
+  // 4. Reverse transfer effects to get historical balances
+}
+```
+
+**Performance Comparison:**
+| Method | Query Time | API Cost |
+|--------|------------|----------|
+| GoldRush/Covalent | ~2-5s per timestamp | Credits consumed |
+| HyperSync | ~500ms for all timestamps | Free |
 
 ### 7.2 RPC Provider Management
 
@@ -1423,6 +1495,13 @@ TENDERLY_ACCOUNT="your-account"
 TENDERLY_PROJECT="your-project"
 COINGECKO_API_KEY="your-coingecko-key"
 
+# The Graph (for fast DeFi position queries)
+GRAPH_API_KEY="your-graph-api-key"       # From https://thegraph.com/studio/
+USE_GRAPH_ADAPTERS=true                  # Enable Graph-accelerated adapters
+
+# Envio HyperSync (for historical balance reconstruction)
+ENVIO_API_TOKEN="your-envio-token"       # Free from https://envio.dev/app/api-tokens
+
 # Notifications
 RESEND_API_KEY="your-resend-key"
 TELEGRAM_BOT_TOKEN="your-telegram-bot"
@@ -1658,15 +1737,25 @@ describe('Portfolio Flow', () => {
 
 When adding a new protocol adapter:
 
-- [ ] Implement `ProtocolAdapter` interface
+**RPC Adapter (required):**
+- [ ] Implement `ProtocolAdapter` interface in `src/server/adapters/`
 - [ ] Add contract ABIs to `/src/server/abis/`
-- [ ] Add contract addresses per chain
+- [ ] Add contract addresses per chain to `src/lib/constants.ts`
 - [ ] Implement `getPositions()` method
-- [ ] Implement `getCurrentApy()` method
-- [ ] Implement transaction builders (deposit, withdraw, claim)
+- [ ] Implement `supportsChain()` method
 - [ ] Add protocol to database seed
+- [ ] Register in `src/server/adapters/registry.ts` (RPC mode section)
 - [ ] Write unit tests for adapter
 - [ ] Test on testnet before mainnet
+
+**Graph Adapter (optional, for faster queries):**
+- [ ] Check if protocol has a subgraph on The Graph Explorer
+- [ ] Add subgraph ID to `SUBGRAPH_IDS` in `src/server/adapters/graph/client.ts`
+- [ ] Create Graph adapter in `src/server/adapters/graph/adapters/`
+- [ ] Implement GraphQL query for user positions
+- [ ] Add RPC fallback (import existing RPC adapter)
+- [ ] Export from `src/server/adapters/graph/index.ts`
+- [ ] Register in `src/server/adapters/registry.ts` (Graph mode section)
 
 ---
 
@@ -1683,5 +1772,16 @@ When adding support for a new chain:
 
 ---
 
-*Document Version: 1.0*
+*Document Version: 1.1*
 *Last Updated: January 2025*
+
+---
+
+## Changelog
+
+### v1.1 (January 2025)
+- Added Graph-accelerated adapters section (7.1.1) for Aave V3, Compound V3, Lido, EtherFi
+- Added Envio HyperSync integration section (7.1.3) for historical balance reconstruction
+- Updated adapter registry section (7.1.2) with conditional Graph/RPC mode
+- Added new environment variables: `USE_GRAPH_ADAPTERS`, `GRAPH_API_KEY`, `ENVIO_API_TOKEN`
+- Updated system architecture diagram with HyperSync data layer

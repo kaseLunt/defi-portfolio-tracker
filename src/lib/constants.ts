@@ -112,3 +112,16 @@ export const DEFILLAMA_CHAIN_PREFIXES: Record<SupportedChainId, string> = {
   [SUPPORTED_CHAINS.BASE]: "base",
   [SUPPORTED_CHAINS.POLYGON]: "polygon",
 };
+
+// Envio HyperSync endpoints (free, high-performance historical data)
+export const HYPERSYNC_ENDPOINTS: Record<SupportedChainId, string> = {
+  [SUPPORTED_CHAINS.ETHEREUM]: "https://eth.hypersync.xyz",
+  [SUPPORTED_CHAINS.ARBITRUM]: "https://arbitrum.hypersync.xyz",
+  [SUPPORTED_CHAINS.OPTIMISM]: "https://optimism.hypersync.xyz",
+  [SUPPORTED_CHAINS.BASE]: "https://base.hypersync.xyz",
+  [SUPPORTED_CHAINS.POLYGON]: "https://polygon.hypersync.xyz",
+};
+
+// ERC20 Transfer event topic (keccak256("Transfer(address,address,uint256)"))
+export const ERC20_TRANSFER_TOPIC =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";

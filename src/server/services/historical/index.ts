@@ -1,8 +1,82 @@
 import type { Address } from "viem";
-import { SUPPORTED_CHAINS, type SupportedChainId } from "@/lib/constants";
+import { SUPPORTED_CHAINS, HYPERSYNC_ENDPOINTS, type SupportedChainId } from "@/lib/constants";
 import { getFromCache, setInCache } from "@/server/lib/redis";
-import { getBulkHistoricalBalances } from "./covalent";
+import { getBulkHistoricalBalances as getBulkHistoricalBalancesCovalent } from "./covalent";
+// Note: Alchemy SDK disabled due to Referrer header bug in Node.js
+// import { getTokenBalancesViaAlchemy, isAlchemyConfigured } from "@/server/lib/alchemy";
+import type { TokenBalance } from "./types";
 import { getHistoricalPrices } from "./defillama";
+
+// Feature flag for HyperSync (set USE_HYPERSYNC=true in env to enable)
+const USE_HYPERSYNC = process.env.USE_HYPERSYNC === "true";
+
+// Check if HyperSync is available for a chain (without importing the module)
+function isHyperSyncAvailable(chainId: SupportedChainId): boolean {
+  return chainId in HYPERSYNC_ENDPOINTS;
+}
+
+// Dynamic import cache for HyperSync module
+let hypersyncModule: typeof import("./hypersync") | null = null;
+let hypersyncLoadFailed = false;
+
+async function getHypersyncModule() {
+  if (hypersyncLoadFailed) return null;
+  if (hypersyncModule) return hypersyncModule;
+
+  try {
+    hypersyncModule = await import("./hypersync");
+    return hypersyncModule;
+  } catch (error) {
+    console.warn("[Historical] HyperSync module not available on this platform:", error);
+    hypersyncLoadFailed = true;
+    return null;
+  }
+}
+
+/**
+ * Get bulk historical balances using the configured data source
+ * Uses HyperSync if enabled, otherwise falls back to Covalent/GoldRush
+ *
+ * When using HyperSync:
+ * 1. First fetch current balances from Alchemy (free, fast)
+ * 2. Pass to HyperSync as anchor for backward reconstruction
+ */
+async function getBulkHistoricalBalances(
+  walletAddress: Address,
+  chainId: SupportedChainId,
+  timestamps: Date[]
+): ReturnType<typeof getBulkHistoricalBalancesCovalent> {
+  if (USE_HYPERSYNC && isHyperSyncAvailable(chainId)) {
+    const hsModule = await getHypersyncModule();
+    if (hsModule) {
+      console.log(`[Historical] Using HyperSync for chain ${chainId}`);
+      try {
+        let currentBalances: TokenBalance[] = [];
+
+        // Get current balances from Covalent
+        // Note: Alchemy SDK has issues in Node.js server environment (Referrer header bug)
+        // TODO: Re-enable Alchemy once we have a valid API key and fix the SDK issue
+        const now = new Date();
+        const covalentBalances = await getBulkHistoricalBalancesCovalent(walletAddress, chainId, [now]);
+        currentBalances = covalentBalances.get(now.getTime()) ?? [];
+        console.log(`[Historical] Chain ${chainId}: Got ${currentBalances.length} current balances from Covalent`);
+
+        // Now use HyperSync with current balances to reconstruct history
+        return await hsModule.getBulkHistoricalBalancesViaHyperSync(
+          walletAddress,
+          chainId,
+          timestamps,
+          currentBalances
+        );
+      } catch (error) {
+        console.warn(`[Historical] HyperSync failed, falling back to Covalent:`, error);
+        return getBulkHistoricalBalancesCovalent(walletAddress, chainId, timestamps);
+      }
+    }
+  }
+
+  return getBulkHistoricalBalancesCovalent(walletAddress, chainId, timestamps);
+}
 import {
   generateTimestamps,
   generateCacheKey,
@@ -14,12 +88,10 @@ import {
   updateProgress,
   getStageMessage,
 } from "./progress";
-import { sleep } from "@/server/lib/rate-limiter";
 import type {
   HistoricalTimeframe,
   HistoricalDataPoint,
   HistoricalPortfolioResult,
-  TokenBalance,
 } from "./types";
 
 // Default chains to query if not specified
@@ -164,33 +236,23 @@ export async function getHistoricalPortfolio(
   // Generate timestamps for this timeframe
   const timestamps = generateTimestamps(timeframe);
 
-  // STEP 1: Fetch all GoldRush data upfront (1 API call per chain = 5 total)
-  // Process chains in parallel for speed (2 at a time to respect rate limits)
+  // STEP 1: Fetch all chain data in PARALLEL (rate limiter handles throttling)
+  // All 5 chains at once - much faster than sequential batches
   const chainBalances = new Map<SupportedChainId, Map<number, TokenBalance[]>>();
-  const CHAIN_BATCH_SIZE = 2;
 
-  for (let i = 0; i < chains.length; i += CHAIN_BATCH_SIZE) {
-    const batch = chains.slice(i, i + CHAIN_BATCH_SIZE);
+  const chainResults = await Promise.allSettled(
+    chains.map((chainId) => getBulkHistoricalBalances(walletAddress, chainId, timestamps))
+  );
 
-    const batchResults = await Promise.allSettled(
-      batch.map((chainId) => getBulkHistoricalBalances(walletAddress, chainId, timestamps))
-    );
-
-    batch.forEach((chainId, index) => {
-      const result = batchResults[index];
-      if (result.status === "fulfilled") {
-        chainBalances.set(chainId, result.value);
-      } else {
-        console.warn(`[Historical] Chain ${chainId} fetch failed:`, result.reason);
-        chainBalances.set(chainId, new Map());
-      }
-    });
-
-    // Small delay between batches
-    if (i + CHAIN_BATCH_SIZE < chains.length) {
-      await sleep(200);
+  chains.forEach((chainId, index) => {
+    const result = chainResults[index];
+    if (result.status === "fulfilled") {
+      chainBalances.set(chainId, result.value);
+    } else {
+      console.warn(`[Historical] Chain ${chainId} fetch failed:`, result.reason);
+      chainBalances.set(chainId, new Map());
     }
-  }
+  });
 
   // STEP 2: Process timestamps in PARALLEL for speed
   const PRICE_CONCURRENCY = 5;

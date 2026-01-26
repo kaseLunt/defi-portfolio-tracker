@@ -4,6 +4,42 @@ This document consolidates all planned features, prioritized for maximum impact 
 
 ---
 
+## Recently Completed
+
+### The Graph Integration (January 2025)
+**Status**: DONE
+
+Implemented Graph-accelerated adapters for major protocols, achieving ~25x faster position queries:
+- Aave V3 Graph adapter
+- Compound V3 Graph adapter
+- Lido Graph adapter
+- EtherFi Graph adapter
+
+DeFi position loading reduced from ~38s to ~1-2s through subgraph queries.
+
+### HyperSync Historical Data (January 2025)
+**Status**: DONE
+
+Integrated Envio HyperSync for backward balance reconstruction:
+- Block time estimation for historical queries
+- Fast ERC-20 transfer log retrieval
+- Backward balance calculation from current state
+
+### Live Price Animation Fix (January 2025)
+**Status**: DONE
+
+Fixed price ticker animation re-triggering issue in the dashboard.
+
+### Performance Optimization (January 2025)
+**Status**: DONE
+
+Major performance improvements across the application:
+- DeFi position loading: 38s → 1-2s
+- Graph-accelerated protocol adapters
+- Optimized data fetching patterns
+
+---
+
 ## Priority Tiers
 
 | Tier | Focus | Why It Matters |
@@ -171,9 +207,16 @@ src/server/
 
 ## P1: Real-Time & Polish
 
+### Feature: Live Price Animation
+**Status**: DONE
+
+Fixed price ticker animation re-triggering. Prices now animate smoothly when values change.
+
+---
+
 ### Feature: Live Price Streaming via SSE
 
-**Status**: Infrastructure exists (`use-live-prices.ts`, `LiveIndicator`), backend broadcasting not implemented.
+**Status**: Partially implemented - infrastructure exists (`use-live-prices.ts`, `LiveIndicator`), backend broadcasting not yet implemented.
 
 **What's Missing**:
 1. Background job to fetch prices periodically (every 10s)
@@ -451,6 +494,8 @@ src/components/
 | GoldRush (Covalent) | Token balances | Free tier | ✅ Implemented |
 | DeFi Llama | Prices, yields | Free | ✅ Implemented |
 | CoinGecko | Live prices | Free tier | ✅ Implemented |
+| The Graph | DeFi position queries | Free tier | ✅ Implemented |
+| Envio HyperSync | Historical balance reconstruction | Free | ✅ Implemented |
 | EtherFi API | Points data | Free (if available) | 🔲 To investigate |
 | EigenLayer Contracts | Delegation data | Free (RPC) | 🔲 Planned |
 | Tenderly | TX simulation | ~$50/month | 🔲 Planned |
@@ -463,31 +508,35 @@ src/components/
 
 **Recommended sequence for maximum demo impact:**
 
-1. **Live Price Streaming** (P1)
-   - Quick win, makes app feel alive
+1. ~~**Performance Optimization**~~ DONE
+   - Graph-accelerated adapters for major protocols
+   - DeFi position loading: 38s → 1-2s
+
+2. **Live Price Streaming** (P1) - IN PROGRESS
+   - Animation fixed, backend broadcasting next
    - Infrastructure mostly exists
 
-2. **EtherFi Points Tracker** (P0)
+3. **EtherFi Points Tracker** (P0) - NEXT PRIORITY
    - High EtherFi relevance
    - Can start with estimation if API unavailable
 
-3. **Restaking Flow Visualization** (P0)
+4. **Restaking Flow Visualization** (P0)
    - Visual impact, shows product understanding
    - Mostly frontend work
 
-4. **Liquidation Risk Dashboard** (P2)
+5. **Liquidation Risk Dashboard** (P2)
    - Demonstrates DeFi expertise
    - Backend complexity but high value
 
-5. **Transaction Simulation** (P2)
+6. **Transaction Simulation** (P2)
    - Requires Tenderly setup
    - Critical for trust in any "actions" features
 
-6. **weETH DeFi Map** (P0)
+7. **weETH DeFi Map** (P0)
    - Builds on existing adapters
    - EtherFi-specific insight
 
-7. **Unified Actions** (P3)
+8. **Unified Actions** (P3)
    - Full product vision
    - Depends on simulation being ready
 
@@ -495,16 +544,20 @@ src/components/
 
 ## Success Criteria
 
-| Feature | Metric |
-|---------|--------|
-| Live Prices | Updates visible within 10s of price change |
-| Points Tracker | Earning rate within 10% of actual |
-| Liquidation Monitor | Health factor accurate to 2 decimal places |
-| Transaction Simulation | 99%+ accuracy vs actual execution |
-| Load Time | Dashboard < 3s, historical chart < 5s |
+| Feature | Metric | Status |
+|---------|--------|--------|
+| Live Prices | Updates visible within 10s of price change | In Progress |
+| Points Tracker | Earning rate within 10% of actual | Planned |
+| Liquidation Monitor | Health factor accurate to 2 decimal places | Planned |
+| Transaction Simulation | 99%+ accuracy vs actual execution | Planned |
+| Load Time | Dashboard < 3s, historical chart < 5s | ACHIEVED (1-2s) |
 
 ---
 
-*Document Version: 1.0*
+*Document Version: 1.1*
 *Created: January 21, 2025*
+*Last Updated: January 23, 2025*
 *Consolidates: PHASE_2_3_PLAN.md + new EtherFi-specific recommendations*
+
+### Changelog
+- **v1.1** (Jan 23, 2025): Added "Recently Completed" section documenting The Graph integration, HyperSync historical data, live price animation fix, and performance optimizations. Updated success criteria and external dependencies.

@@ -64,10 +64,24 @@ interface ProtocolAdapter {
 }
 ```
 
+**Graph-Accelerated Adapters (Recommended)**
+
+When `USE_GRAPH_ADAPTERS=true`, the registry uses The Graph subgraph queries for ~25x faster position loading:
+
+| Adapter | Location | Performance |
+|---------|----------|-------------|
+| Aave V3 | `src/server/adapters/graph/adapters/aave-v3.ts` | ~100-500ms vs 3-8s RPC |
+| Compound V3 | `src/server/adapters/graph/adapters/compound-v3.ts` | ~100-500ms vs 3-8s RPC |
+| Lido | `src/server/adapters/graph/adapters/lido.ts` | ~100ms (mainnet Graph, L2 RPC) |
+| EtherFi | `src/server/adapters/graph/adapters/etherfi.ts` | ~100ms (mainnet Graph, L2 RPC) |
+
+Graph adapters automatically fall back to RPC on failure. RPC adapters in `src/server/adapters/*.ts` remain as fallbacks.
+
 Adapters are registered in `src/server/adapters/registry.ts`. To add a new protocol:
 1. Create adapter file implementing the interface
-2. Register in registry.ts
-3. Add protocol to Prisma seed data
+2. (Optional) Create Graph adapter in `graph/adapters/` for fast queries
+3. Register in registry.ts
+4. Add protocol to Prisma seed data
 
 ### Data Flow for Portfolio
 
@@ -131,11 +145,12 @@ Chain/protocol constants in `src/lib/constants.ts`. Protocol metadata (names, lo
 
 | API | Purpose | Rate Limits |
 |-----|---------|-------------|
+| **The Graph** | DeFi position queries | 100K queries/mo free |
 | GoldRush (Covalent) | Token balances | 100k credits/mo free |
 | DeFi Llama | Historical prices, yields | Free, generous |
 | CoinGecko | Live prices | 50 calls/min free |
 
-API clients in `src/server/services/`. Chain name mappings for GoldRush: `eth-mainnet`, `arbitrum-mainnet`, `optimism-mainnet`, `base-mainnet`, `matic-mainnet`.
+The Graph client in `src/server/adapters/graph/client.ts`. API clients in `src/server/services/`. Chain name mappings for GoldRush: `eth-mainnet`, `arbitrum-mainnet`, `optimism-mainnet`, `base-mainnet`, `matic-mainnet`.
 
 ## Environment Variables
 
@@ -147,6 +162,10 @@ NEXT_PUBLIC_ALCHEMY_RPC_ETHEREUM=...
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=...
 COVALENT_API_KEY=...          # GoldRush
 NEXTAUTH_SECRET=...           # For SIWE sessions
+
+# The Graph (optional but recommended for 25x faster DeFi queries)
+USE_GRAPH_ADAPTERS=true       # Enable Graph-accelerated adapters
+GRAPH_API_KEY=...             # From https://thegraph.com/studio/apikeys/
 ```
 
 ## Important Patterns

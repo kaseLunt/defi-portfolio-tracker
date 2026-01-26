@@ -96,15 +96,33 @@ export const cachePrewarmQueue = new Queue("cache-prewarm", {
   },
 });
 
+// Queue for processing WebSocket events (Alchemy Transfer events)
+export const websocketEventQueue = new Queue("websocket-event", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 1000,
+    },
+    removeOnComplete: {
+      count: 100,
+    },
+    removeOnFail: {
+      count: 50,
+    },
+  },
+});
+
 // Initialize scheduled jobs
 export async function initScheduledJobs() {
-  // Price updates every 30 seconds
+  // Price updates every 2 minutes (CoinGecko free tier: 10-30 calls/min)
   await priceUpdateQueue.add(
     "update-all",
     {},
     {
       repeat: {
-        every: 30000, // 30 seconds
+        every: 120000, // 2 minutes - respect CoinGecko rate limits
       },
       jobId: "scheduled-price-update",
     }
@@ -144,4 +162,5 @@ export const queues = {
   alertCheck: alertCheckQueue,
   txMonitor: txMonitorQueue,
   cachePrewarm: cachePrewarmQueue,
+  websocketEvent: websocketEventQueue,
 };

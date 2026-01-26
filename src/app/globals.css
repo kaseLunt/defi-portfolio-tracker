@@ -520,3 +520,193 @@ input[type="text"]:focus {
     0 0 0 3px hsl(var(--primary) / 0.1),
     0 0 20px -5px hsl(var(--primary) / 0.2);
 }
+
+/* =============================================================================
+   ETHER.FI - Gaming-Inspired Tier Badge Animations
+   ============================================================================= */
+
+/* EtherFi brand color */
+.border-etherfi\/20 {
+  border-color: rgba(115, 92, 255, 0.2);
+}
+
+.border-etherfi\/40 {
+  border-color: rgba(115, 92, 255, 0.4);
+}
+
+/* Tier badge pulse glow animation */
+.animate-tier-pulse {
+  animation: tier-pulse 3s ease-in-out infinite;
+}
+
+@keyframes tier-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 20px var(--tier-glow),
+      inset 0 0 15px rgba(255, 255, 255, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 35px var(--tier-glow),
+      0 0 60px var(--tier-glow),
+      inset 0 0 20px rgba(255, 255, 255, 0.15);
+  }
+}
+
+/* Platinum tier shimmer effect */
+.animate-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.animate-shimmer-slide {
+  animation: shimmer-slide 3s ease-in-out infinite;
+  transform: translateX(-100%);
+}
+
+@keyframes shimmer-slide {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  60% {
+    transform: translateX(100%);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* Progress bar fill animation */
+.animate-progress-fill {
+  animation: progress-fill 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  transform-origin: left;
+}
+
+@keyframes progress-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* EtherFi card hover glow */
+.hover\:shadow-\[0_0_40px_rgba\(115\,92\,255\,0\.15\)\]:hover {
+  box-shadow: 0 0 40px rgba(115, 92, 255, 0.15);
+}
+
+/* EtherFi button hover glow */
+.group-hover\:shadow-\[0_0_20px_rgba\(115\,92\,255\,0\.3\)\] {
+  transition: box-shadow 0.3s ease;
+}
+
+.group:hover .group-hover\:shadow-\[0_0_20px_rgba\(115\,92\,255\,0\.3\)\] {
+  box-shadow: 0 0 20px rgba(115, 92, 255, 0.3);
+}
+
+/* Floating animation for hero elements */
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Count-up number animation helper */
+.animate-count-up {
+  animation: count-up 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes count-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* EtherFi gradient text */
+.text-gradient-etherfi {
+  background: linear-gradient(135deg, #735CFF 0%, #5B3FD9 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Staking success confetti placeholder */
+.animate-confetti {
+  animation: confetti-pop 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes confetti-pop {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* =============================================================================
+   STRATEGY BUILDER - Loop Detection & Flow Edge Animations
+   ============================================================================= */
+
+/* Slow spin for loop indicator */
+.animate-spin-slow {
+  animation: spin 3s linear infinite;
+}
+
+/* Loop badge glow effect */
+.loop-badge-glow {
+  box-shadow:
+    0 0 20px rgba(115, 92, 255, 0.3),
+    0 0 40px rgba(236, 72, 153, 0.15);
+}
+
+/* Animated gradient border for loops */
+.loop-gradient-border {
+  background: linear-gradient(
+    90deg,
+    rgba(115, 92, 255, 0.4),
+    rgba(236, 72, 153, 0.4),
+    rgba(115, 92, 255, 0.4)
+  );
+  background-size: 200% 100%;
+  animation: loop-border-shift 2s linear infinite;
+}
+
+@keyframes loop-border-shift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* Edge flow pulse animation */
+.edge-flow-pulse {
+  animation: edge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes edge-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}

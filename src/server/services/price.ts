@@ -4,7 +4,11 @@ import type { PrismaClient } from "@prisma/client";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 
 // Rate limit: 10-30 calls/minute for free tier, cache aggressively
-const CACHE_TTL_MS = 60_000; // 1 minute cache
+const CACHE_TTL_MS = 120_000; // 2 minutes cache - reduce API calls
+
+// Track 429 errors to back off
+let lastRateLimitHit = 0;
+const RATE_LIMIT_BACKOFF_MS = 60_000; // Wait 1 minute after 429
 
 // In-memory cache for price data
 interface PriceCacheEntry {
@@ -45,7 +49,8 @@ export const COINGECKO_IDS: Record<string, string> = {
   LDO: "lido-dao",
   ETHFI: "ether-fi",
 
-  // Wrapped BTC
+  // Bitcoin
+  BTC: "bitcoin",
   WBTC: "wrapped-bitcoin",
 
   // Ethena
@@ -64,7 +69,7 @@ interface CoinGeckoPriceResponse {
 }
 
 /**
- * Fetch prices from CoinGecko API
+ * Fetch prices from CoinGecko API with rate limit awareness
  */
 async function fetchPricesFromCoinGecko(
   coingeckoIds: string[]
@@ -72,6 +77,12 @@ async function fetchPricesFromCoinGecko(
   const result = new Map<string, PriceCacheEntry>();
 
   if (coingeckoIds.length === 0) return result;
+
+  // Check if we're in rate limit backoff period
+  if (Date.now() - lastRateLimitHit < RATE_LIMIT_BACKOFF_MS) {
+    console.log("[CoinGecko] In backoff period, using cached data");
+    return result;
+  }
 
   // Deduplicate and filter empty
   const uniqueIds = [...new Set(coingeckoIds.filter(Boolean))];
@@ -88,6 +99,12 @@ async function fetchPricesFromCoinGecko(
       },
       signal: AbortSignal.timeout(10_000),
     });
+
+    if (response.status === 429) {
+      console.warn("[CoinGecko] Rate limited (429), backing off for 1 minute");
+      lastRateLimitHit = Date.now();
+      return result;
+    }
 
     if (!response.ok) {
       console.error(`CoinGecko API error: ${response.status}`);

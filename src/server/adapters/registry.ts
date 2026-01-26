@@ -1,6 +1,15 @@
 import type { Address } from "viem";
 import type { SupportedChainId } from "@/lib/constants";
 import type { ProtocolAdapter, Position } from "./types";
+
+// Graph-based adapters (fast, uses The Graph subgraphs)
+import { aaveV3GraphAdapter } from "./graph/adapters/aave-v3";
+import { compoundV3GraphAdapter } from "./graph/adapters/compound-v3";
+import { lidoGraphAdapter } from "./graph/adapters/lido";
+import { etherfiGraphAdapter } from "./graph/adapters/etherfi";
+import { USE_GRAPH_ADAPTERS } from "./graph/client";
+
+// RPC-based adapters (fallback when Graph not available)
 import { lidoAdapter } from "./lido";
 import { etherfiAdapter } from "./etherfi";
 import { aaveV3Adapter } from "./aave-v3";
@@ -16,20 +25,49 @@ const POSITIONS_CACHE_TTL = 120;
 
 /**
  * Registry of all protocol adapters
+ *
+ * When USE_GRAPH_ADAPTERS is enabled, uses The Graph subgraphs for
+ * fast, indexed queries (~100-500ms) instead of slow RPC calls (~3-8s).
+ * Graph adapters automatically fall back to RPC on failure.
  */
 class AdapterRegistry {
   private adapters: Map<string, ProtocolAdapter> = new Map();
 
   constructor() {
-    // Register all adapters
-    this.register(lidoAdapter);
-    this.register(etherfiAdapter);
-    this.register(aaveV3Adapter);
-    this.register(compoundV3Adapter);
-    this.register(sparkAdapter);
-    this.register(eigenlayerAdapter);
-    this.register(morphoAdapter);
-    this.register(pendleAdapter);
+    // Log adapter mode
+    if (USE_GRAPH_ADAPTERS) {
+      console.log("[Adapters] Using Graph-based adapters (fast mode)");
+    } else {
+      console.log("[Adapters] Using RPC-based adapters (standard mode)");
+    }
+
+    // Register adapters based on mode
+    // Graph adapters have internal RPC fallback, so they're always safe to use
+    if (USE_GRAPH_ADAPTERS) {
+      // Graph-accelerated adapters (verified working with correct subgraph IDs)
+      this.register(aaveV3GraphAdapter);
+      this.register(compoundV3GraphAdapter); // Using Paperclip Labs subgraphs
+
+      // These protocols use RPC (Graph subgraphs don't track token balances)
+      this.register(lidoAdapter);         // Lido subgraph in transfer, use RPC
+      this.register(etherfiAdapter);      // EtherFi subgraph tracks validators not balances
+
+      // Protocols without Graph subgraphs (use RPC)
+      this.register(sparkAdapter);
+      this.register(eigenlayerAdapter);
+      this.register(morphoAdapter);
+      this.register(pendleAdapter);
+    } else {
+      // All RPC-based adapters
+      this.register(lidoAdapter);
+      this.register(etherfiAdapter);
+      this.register(aaveV3Adapter);
+      this.register(compoundV3Adapter);
+      this.register(sparkAdapter);
+      this.register(eigenlayerAdapter);
+      this.register(morphoAdapter);
+      this.register(pendleAdapter);
+    }
   }
 
   /**

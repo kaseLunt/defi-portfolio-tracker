@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, verifySiweMessage, getOrCreateUser } from "@/server/lib/siwe";
+import { getWebSocketService } from "@/server/services/websocket";
+import type { Address } from "viem";
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,6 +35,17 @@ export async function POST(request: NextRequest) {
     session.isLoggedIn = true;
     session.nonce = undefined; // Clear nonce after use
     await session.save();
+
+    // Subscribe to real-time events for this wallet (non-blocking)
+    try {
+      const wsService = getWebSocketService();
+      if (wsService.isActive()) {
+        wsService.subscribeUser(user.id, user.walletAddress as Address)
+          .catch(err => console.error("[Auth] Failed to subscribe wallet:", err));
+      }
+    } catch {
+      // WebSocket service not initialized - skip subscription
+    }
 
     return NextResponse.json({
       success: true,
