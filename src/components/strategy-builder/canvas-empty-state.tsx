@@ -69,7 +69,8 @@ function QuickStartCard({
         "group relative p-5 rounded-2xl text-left transition-all duration-300",
         "bg-gradient-to-br from-[#12121a]/80 to-[#0a0a10]/90",
         "border border-white/5 hover:border-white/20",
-        "holographic-border backdrop-blur-xl"
+        "holographic-border backdrop-blur-xl",
+        "pointer-events-auto cursor-pointer"
       )}
     >
       {/* Glow effect on hover */}
@@ -133,7 +134,8 @@ function CanvasEmptyStateComponent() {
       animate="visible"
       className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none"
     >
-      <div className="pointer-events-auto max-w-2xl px-8">
+      {/* Content wrapper - pointer-events-none so drags pass through to canvas */}
+      <div className="max-w-2xl px-8 pointer-events-none">
         {/* Header with animated icon */}
         <motion.div variants={itemVariants} className="text-center mb-10">
           {/* Holographic orb */}
@@ -195,28 +197,28 @@ function CanvasEmptyStateComponent() {
           </p>
         </motion.div>
 
-        {/* Quick start cards */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        {/* Quick start cards - pointer-events-auto for button interaction */}
+        <div className="grid grid-cols-3 gap-4 mb-8 pointer-events-auto">
           <QuickStartCard
             icon={<Layers className="w-6 h-6" />}
-            title="Staking Loop"
-            description="Stake ETH, borrow, restake"
+            title="Leveraged LST"
+            description="Stake, lend & borrow loop"
             color="purple"
-            onClick={() => handleLoadTemplate("leveraged-staking")}
+            onClick={() => handleLoadTemplate("leveraged-lst-2x")}
           />
           <QuickStartCard
             icon={<PiggyBank className="w-6 h-6" />}
-            title="Yield Farm"
-            description="Lend assets for yield"
+            title="LST + Lending"
+            description="Stake ETH, supply for yield"
             color="cyan"
-            onClick={() => handleLoadTemplate("simple-stake")}
+            onClick={() => handleLoadTemplate("lst-lending")}
           />
           <QuickStartCard
             icon={<Sparkles className="w-6 h-6" />}
-            title="EtherFi Stack"
-            description="Maximize eETH yield"
+            title="Conservative LST"
+            description="Simple EtherFi staking"
             color="pink"
-            onClick={() => handleLoadTemplate("etherfi-power")}
+            onClick={() => handleLoadTemplate("conservative-lst")}
           />
         </div>
 
