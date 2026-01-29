@@ -79,14 +79,14 @@ function StakeBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) {
     >
       <div className="space-y-3">
         {/* Protocol Selector */}
-        <div>
+        <div className="nodrag">
           <label className="block text-xs text-white/50 mb-1">Protocol</label>
           <select
             value={blockData.protocol}
             onChange={handleProtocolChange}
-            className="w-full px-2 py-1.5 rounded-lg bg-[#1a1a24] border border-white/10
+            className="nodrag w-full px-2 py-1.5 rounded-lg bg-[#1a1a24] border border-white/10
                        text-sm text-white focus:border-purple-500 focus:outline-none
-                       transition-colors"
+                       transition-colors cursor-pointer"
           >
             {STAKE_PROTOCOLS.map((protocol) => (
               <option key={protocol.value} value={protocol.value}>

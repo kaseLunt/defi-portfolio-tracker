@@ -78,14 +78,14 @@ function SwapBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) {
     >
       <div className="space-y-3">
         {/* From Asset */}
-        <div>
+        <div className="nodrag">
           <label className="block text-xs text-white/50 mb-1">From</label>
           <select
             value={blockData.fromAsset}
             onChange={handleFromAssetChange}
-            className="w-full px-2 py-1.5 rounded-lg bg-[#1a1a24] border border-white/10
+            className="nodrag w-full px-2 py-1.5 rounded-lg bg-[#1a1a24] border border-white/10
                        text-sm text-white focus:border-cyan-500 focus:outline-none
-                       transition-colors"
+                       transition-colors cursor-pointer"
           >
             {SWAP_ASSETS.map((asset) => (
               <option key={asset.value} value={asset.value}>
@@ -103,14 +103,14 @@ function SwapBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) {
         </div>
 
         {/* To Asset */}
-        <div>
+        <div className="nodrag">
           <label className="block text-xs text-white/50 mb-1">To</label>
           <select
             value={blockData.toAsset}
             onChange={handleToAssetChange}
-            className="w-full px-2 py-1.5 rounded-lg bg-[#1a1a24] border border-white/10
+            className="nodrag w-full px-2 py-1.5 rounded-lg bg-[#1a1a24] border border-white/10
                        text-sm text-white focus:border-cyan-500 focus:outline-none
-                       transition-colors"
+                       transition-colors cursor-pointer"
           >
             {SWAP_ASSETS.map((asset) => (
               <option key={asset.value} value={asset.value}>
@@ -121,14 +121,14 @@ function SwapBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) {
         </div>
 
         {/* Slippage */}
-        <div className="pt-2 border-t border-white/5">
+        <div className="pt-2 border-t border-white/5 nodrag">
           <div className="flex justify-between items-center">
             <span className="text-xs text-white/50">Max Slippage</span>
             <select
               value={blockData.slippage}
               onChange={handleSlippageChange}
-              className="px-2 py-0.5 rounded bg-[#1a1a24] border border-white/10
-                         text-xs text-white focus:border-cyan-500 focus:outline-none"
+              className="nodrag px-2 py-0.5 rounded bg-[#1a1a24] border border-white/10
+                         text-xs text-white focus:border-cyan-500 focus:outline-none cursor-pointer"
             >
               <option value={0.1}>0.1%</option>
               <option value={0.5}>0.5%</option>

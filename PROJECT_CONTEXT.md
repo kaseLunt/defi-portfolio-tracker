@@ -10,11 +10,11 @@ OnChain Wealth is a DeFi portfolio tracking and management application built for
 
 ---
 
-## Current State (Phase 1 Complete + Phase 2 In Progress)
+## Current State (Phase 1 Complete + Phase 2 In Progress + Major Feature Additions)
 
 ### What Works
 
-The Phase 1 foundation is complete, with Phase 2 historical portfolio features now functional. UX polish complete. All fake/placeholder features replaced with real data. **The Graph integration delivers sub-second DeFi position loading.**
+The Phase 1 foundation is complete, with Phase 2 historical portfolio features now functional. UX polish complete. All fake/placeholder features replaced with real data. **The Graph integration delivers sub-second DeFi position loading.** **Strategy Builder provides visual DeFi composition with real-time simulation.** **EtherFi-specific dashboard showcases protocol-focused experience.**
 
 **Multi-Chain Portfolio Tracking**
 - 5 supported chains: Ethereum (1), Arbitrum (42161), Optimism (10), Base (8453), Polygon (137)
@@ -45,6 +45,52 @@ The Phase 1 foundation is complete, with Phase 2 historical portfolio features n
 - DeFi position loading reduced from **~38 seconds to ~1-2 seconds** (19x faster)
 - Subgraph queries replace slow multicall RPC operations
 - Graceful fallback to RPC if subgraph unavailable
+- Graph client with caching in `src/server/adapters/graph/client.ts`
+- Adapters organized in `src/server/adapters/graph/adapters/` directory
+
+**Strategy Builder (Major New Feature)**
+- Visual drag-and-drop DeFi strategy builder at `/strategy-builder`
+- Supported block types:
+  - **Input**: Capital entry point with customizable amount
+  - **Stake**: Staking protocols (Lido, EtherFi) with live APY
+  - **Lend**: Lending protocols (Aave, Compound) with supply rates
+  - **Borrow**: Borrowing against collateral with health factor tracking
+  - **Swap**: Token exchanges with price impact estimation
+- Flow allocation system with auto-balancing (split capital across multiple paths)
+- Loop detection for leverage strategies (borrow -> swap -> stake -> repeat)
+- Real-time simulation engine:
+  - APY calculation based on composed strategy
+  - Risk scoring based on protocol diversity and leverage
+  - Projected yields at 1m/6m/1y timeframes
+- Premium UI treatment:
+  - Animated particle effects on canvas background
+  - Celebration confetti on strategy save
+  - Ambient glow effects on connections
+  - Smooth drag-and-drop with visual feedback
+
+**EtherFi Integration (Enhanced)**
+- Dedicated EtherFi dashboard at `/etherfi/[wallet]`
+- Platinum tier badge with gaming-inspired design (animated gradient border)
+- Live weETH/ETH exchange rate display
+- Staking panel with real-time APY and one-click stake simulation
+- EtherFi Insights card on main dashboard showing:
+  - Total staked value
+  - Current APY
+  - Accrued rewards estimate
+  - Quick link to dedicated dashboard
+- Protocol-specific branding and color scheme
+
+**UI/UX Improvements (Premium Polish)**
+- Custom typography system:
+  - Space Grotesk for headings (modern geometric sans-serif)
+  - JetBrains Mono for numbers and addresses (monospace clarity)
+- Staggered page entrance animations with Framer Motion
+- Premium glass morphism effects throughout:
+  - Frosted glass cards with subtle borders
+  - Backdrop blur on overlays
+  - Gradient shine effects on hover
+- Enhanced loading states with skeleton pulse animations
+- Responsive design refinements for tablet breakpoints
 
 **Historical Portfolio Chart (Phase 2 Feature - Working)**
 - Shows portfolio value over 7d/30d/90d/1y timeframes
@@ -116,12 +162,16 @@ src/
       events/             # SSE endpoint for real-time updates
     dashboard/            # Main dashboard page
     alerts/               # Alert management page
+    strategy-builder/     # Visual DeFi strategy composer
+    etherfi/[wallet]/     # Dedicated EtherFi dashboard
 
   server/
     adapters/             # Protocol adapters (one per DeFi protocol)
       types.ts            # Position, ProtocolAdapter interfaces
       registry.ts         # Adapter registry singleton
-      *-graph.ts          # Graph-accelerated adapters (primary, sub-second queries)
+      graph/              # Graph-accelerated adapters (primary, sub-second queries)
+        client.ts         # Centralized GraphQL client
+        adapters/         # Protocol-specific Graph adapters
       aave-v3.ts, lido.ts, etc.  # RPC-based adapters (fallback)
 
     services/
@@ -153,6 +203,8 @@ src/
     notifications/        # Notification bell
     wallet/               # Connect button
     shared/               # Chain badge, token icon, error boundary
+    strategy-builder/     # Strategy canvas, blocks, simulation
+    etherfi/              # EtherFi-specific components (tier badge, staking panel)
 
   hooks/
     use-auth.ts           # Authentication hook
@@ -249,6 +301,90 @@ A detailed implementation plan (`PHASE_2_3_PLAN.md`) has been created covering:
 ---
 
 ## Recent Evolution
+
+### January 26, 2026 (Session 7 - Strategy Builder, EtherFi Dashboard & Premium UI)
+
+**Objective**: Add visual DeFi strategy composition, protocol-specific dashboards, and premium UI polish.
+
+**Strategy Builder Implementation:**
+- Created `/strategy-builder` page with drag-and-drop canvas
+- Block system with 5 types: Input, Stake, Lend, Borrow, Swap
+- Connection lines with animated flow indicators
+- Flow allocation with percentage splits and auto-balancing
+- Loop detection algorithm for leverage strategies
+- Real-time simulation engine calculating:
+  - Combined APY from all yield-generating blocks
+  - Risk score based on protocol diversity and leverage ratio
+  - Gas estimates for strategy execution
+- Premium visual effects:
+  - Particle animation system on canvas background
+  - Confetti celebration on strategy save
+  - Ambient glow on active connections
+  - Smooth transitions and micro-interactions
+
+**EtherFi Dedicated Dashboard:**
+- Created `/etherfi/[wallet]` route with protocol-specific experience
+- Platinum tier badge component with gaming aesthetics:
+  - Animated gradient border
+  - Glow effects and shimmer animation
+  - Tier progression display
+- weETH staking panel:
+  - Live exchange rate from contract
+  - APY display with real data from yields service
+  - Stake/unstake simulation (no actual transactions)
+- Rewards tracker with estimated earnings
+- Integration with main dashboard via EtherFi Insights card
+
+**The Graph Architecture Refactor:**
+- Reorganized Graph adapters into `src/server/adapters/graph/` directory:
+  - `client.ts` - Centralized GraphQL client with caching
+  - `adapters/aave-v3.ts` - Aave V3 subgraph adapter
+  - `adapters/compound-v3.ts` - Compound V3 subgraph adapter
+  - `adapters/lido.ts` - Lido subgraph adapter
+  - `adapters/etherfi.ts` - EtherFi subgraph adapter
+- Improved error handling with detailed fallback logging
+- Added query deduplication to reduce redundant requests
+
+**Premium Typography System:**
+- Added Space Grotesk font for headings (via next/font/google)
+- Added JetBrains Mono for numerical data and addresses
+- Created typography utility classes in globals.css
+- Applied consistently across all components
+
+**Staggered Page Animations:**
+- Implemented `useStaggeredEntrance` hook
+- Cards and sections animate in sequence on page load
+- Smooth fade-up with spring physics
+- Delay orchestration for visual hierarchy
+
+**Glass Morphism Effects:**
+- Created `.glass-card` and `.glass-panel` utility classes
+- Backdrop blur with subtle white borders
+- Gradient overlays for depth
+- Works across light and dark modes
+
+**Files Created:**
+- `src/app/strategy-builder/page.tsx` - Strategy builder main page
+- `src/components/strategy-builder/canvas.tsx` - Drag-and-drop canvas
+- `src/components/strategy-builder/blocks.tsx` - Block components
+- `src/components/strategy-builder/simulation.tsx` - Simulation panel
+- `src/components/strategy-builder/particles.tsx` - Particle animation
+- `src/app/etherfi/[wallet]/page.tsx` - EtherFi dashboard
+- `src/components/etherfi/tier-badge.tsx` - Platinum tier badge
+- `src/components/etherfi/staking-panel.tsx` - Staking interface
+- `src/components/etherfi/insights-card.tsx` - Main dashboard integration
+- `src/server/adapters/graph/client.ts` - Centralized Graph client
+- `src/server/adapters/graph/adapters/*.ts` - Reorganized Graph adapters
+- `src/hooks/use-staggered-entrance.ts` - Animation orchestration hook
+
+**Files Modified:**
+- `src/app/layout.tsx` - Added new fonts, updated metadata
+- `src/app/globals.css` - Typography utilities, glass morphism classes
+- `src/app/dashboard/page.tsx` - Added EtherFi Insights card
+- `src/server/adapters/registry.ts` - Updated Graph adapter imports
+- `tailwind.config.ts` - Extended with custom font families
+
+---
 
 ### January 23, 2026 (Session 6 - The Graph Integration & Performance Breakthrough)
 
@@ -545,10 +681,19 @@ A detailed implementation plan (`PHASE_2_3_PLAN.md`) has been created covering:
 
 | File | Purpose |
 |------|---------|
-| `src/server/adapters/aave-v3-graph.ts` | Graph-accelerated Aave V3 adapter |
-| `src/server/adapters/compound-v3-graph.ts` | Graph-accelerated Compound V3 adapter |
-| `src/server/adapters/lido-graph.ts` | Graph-accelerated Lido adapter |
-| `src/server/adapters/etherfi-graph.ts` | Graph-accelerated EtherFi adapter |
+| `src/server/adapters/graph/client.ts` | Centralized Graph client with caching |
+| `src/server/adapters/graph/adapters/aave-v3.ts` | Graph-accelerated Aave V3 adapter |
+| `src/server/adapters/graph/adapters/compound-v3.ts` | Graph-accelerated Compound V3 adapter |
+| `src/server/adapters/graph/adapters/lido.ts` | Graph-accelerated Lido adapter |
+| `src/server/adapters/graph/adapters/etherfi.ts` | Graph-accelerated EtherFi adapter |
+| `src/app/strategy-builder/page.tsx` | Strategy Builder main page |
+| `src/components/strategy-builder/canvas.tsx` | Drag-and-drop strategy canvas |
+| `src/components/strategy-builder/blocks.tsx` | Strategy block components |
+| `src/components/strategy-builder/simulation.tsx` | Real-time simulation panel |
+| `src/app/etherfi/[wallet]/page.tsx` | Dedicated EtherFi dashboard |
+| `src/components/etherfi/tier-badge.tsx` | Platinum tier badge component |
+| `src/components/etherfi/staking-panel.tsx` | EtherFi staking interface |
+| `src/components/etherfi/insights-card.tsx` | EtherFi insights for main dashboard |
 | `src/server/services/balances.ts` | GoldRush token balance fetching |
 | `src/server/services/portfolio.ts` | Portfolio aggregation (DeFi + tokens) |
 | `src/server/services/historical/index.ts` | Historical portfolio data with interpolation |
@@ -600,5 +745,5 @@ npm run dev
 
 ---
 
-*Document Version: 1.5*
-*Last Updated: January 23, 2026 (Session 6)*
+*Document Version: 1.6*
+*Last Updated: January 26, 2026 (Session 7)*

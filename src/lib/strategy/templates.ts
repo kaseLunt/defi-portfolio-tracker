@@ -41,11 +41,11 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
   },
   {
     id: "leveraged-lst-2x",
-    name: "Leveraged LST (2x)",
-    description: "Loop staking with 2x leverage for amplified returns",
+    name: "Leveraged LST",
+    description: "Stake, lend, and borrow for amplified returns",
     riskLevel: "medium",
     estimatedApy: "6-8%",
-    tags: ["advanced", "leverage", "looping"],
+    tags: ["advanced", "leverage"],
     blocks: [],
     edges: [],
   },
@@ -185,26 +185,37 @@ export function generateLSTLending(): { blocks: StrategyBlock[]; edges: Strategy
 
 /**
  * Generate blocks and edges for Leveraged LST template
+ *
+ * Linear flow: Input → Stake → Lend → Borrow
+ *
+ * For leverage loops, duplicate this sequence multiple times
+ * (e.g., copy the Stake→Lend→Borrow blocks 2-3x for 2-3x leverage).
  */
 export function generateLeveragedLST(): { blocks: StrategyBlock[]; edges: StrategyEdge[] } {
+  // Input block - Entry point OUTSIDE the loop (far left)
   const inputBlock: StrategyBlock = {
     id: "template_input_1",
     type: "input",
-    position: { x: 100, y: 200 },
+    position: { x: 50, y: 200 },
+    selectable: true,
     data: {
       type: "input",
       asset: "ETH",
-      amount: 1,
+      amount: 10,
       label: "Input Capital",
       isConfigured: true,
       isValid: true,
     } as InputBlockData,
   };
 
-  const stakeBlock1: StrategyBlock = {
+  // HORIZONTAL layout: [Input] → [Stake] → [Lend] → [Borrow]
+
+  // Stake block - second in row
+  const stakeBlock: StrategyBlock = {
     id: "template_stake_1",
     type: "stake",
-    position: { x: 300, y: 200 },
+    position: { x: 350, y: 120 },
+    selectable: true,
     data: {
       type: "stake",
       protocol: "etherfi",
@@ -217,27 +228,31 @@ export function generateLeveragedLST(): { blocks: StrategyBlock[]; edges: Strate
     } as StakeBlockData,
   };
 
+  // Lend block - third in row (more spacing)
   const lendBlock: StrategyBlock = {
     id: "template_lend_1",
     type: "lend",
-    position: { x: 500, y: 200 },
+    position: { x: 650, y: 120 },
+    selectable: true,
     data: {
       type: "lend",
       protocol: "aave-v3",
       chain: 1,
       supplyApy: 0.5,
       maxLtv: 77,
-      liquidationThreshold: 80,
+      liquidationThreshold: 82.5,
       label: "Lend",
       isConfigured: true,
       isValid: true,
     } as LendBlockData,
   };
 
+  // Borrow block - fourth in row
   const borrowBlock: StrategyBlock = {
     id: "template_borrow_1",
     type: "borrow",
-    position: { x: 700, y: 200 },
+    position: { x: 950, y: 120 },
+    selectable: true,
     data: {
       type: "borrow",
       asset: "ETH",
@@ -249,55 +264,38 @@ export function generateLeveragedLST(): { blocks: StrategyBlock[]; edges: Strate
     } as BorrowBlockData,
   };
 
-  const stakeBlock2: StrategyBlock = {
-    id: "template_stake_2",
-    type: "stake",
-    position: { x: 900, y: 200 },
-    data: {
-      type: "stake",
-      protocol: "etherfi",
-      inputAsset: "ETH",
-      outputAsset: "eETH",
-      apy: 3.2,
-      label: "Stake",
-      isConfigured: true,
-      isValid: true,
-    } as StakeBlockData,
-  };
-
   const edges: StrategyEdge[] = [
+    // Input → Stake
     {
       id: "template_edge_1",
       source: "template_input_1",
       target: "template_stake_1",
-      type: "smoothstep",
+      type: "flow",
       animated: true,
+      data: { flowPercent: 100 },
     },
+    // Stake → Lend
     {
       id: "template_edge_2",
       source: "template_stake_1",
       target: "template_lend_1",
-      type: "smoothstep",
+      type: "flow",
       animated: true,
+      data: { flowPercent: 100 },
     },
+    // Lend → Borrow
     {
       id: "template_edge_3",
       source: "template_lend_1",
       target: "template_borrow_1",
-      type: "smoothstep",
+      type: "flow",
       animated: true,
-    },
-    {
-      id: "template_edge_4",
-      source: "template_borrow_1",
-      target: "template_stake_2",
-      type: "smoothstep",
-      animated: true,
+      data: { flowPercent: 100 },
     },
   ];
 
   return {
-    blocks: [inputBlock, stakeBlock1, lendBlock, borrowBlock, stakeBlock2],
+    blocks: [inputBlock, stakeBlock, lendBlock, borrowBlock],
     edges,
   };
 }

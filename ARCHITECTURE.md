@@ -1772,12 +1772,440 @@ When adding support for a new chain:
 
 ---
 
-*Document Version: 1.1*
+*Document Version: 1.2*
 *Last Updated: January 2025*
 
 ---
 
+## 13. Strategy Builder Architecture
+
+The Strategy Builder provides a visual, node-based interface for composing DeFi strategies. Users can drag blocks representing DeFi primitives (stake, lend, borrow, swap) onto a canvas and connect them to model complex yield strategies with live APY data and risk simulations.
+
+### 13.1 Core Technologies
+
+| Technology | Purpose | Location |
+|------------|---------|----------|
+| **React Flow** | Node-based canvas with drag-and-drop | `@xyflow/react` |
+| **Zustand** | Reactive state management for blocks/edges | `src/lib/strategy/store.ts` |
+| **Framer Motion** | Block entrance animations, ambient effects | Throughout components |
+| **DeFi Llama API** | Live APY data for yields service | `src/server/services/yields.ts` |
+
+### 13.2 System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           STRATEGY BUILDER UI                                │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                    React Flow Canvas (canvas.tsx)                      │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐              │  │
+│  │  │  Input   │──│  Stake   │──│  Lend    │──│  Borrow  │──(loop back) │  │
+│  │  │  Block   │  │  Block   │  │  Block   │  │  Block   │              │  │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘              │  │
+│  │                         Custom Animated Edges (flow-edge.tsx)         │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                      │                                       │
+│                                      ▼                                       │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     Zustand Store (store.ts)                           │  │
+│  │  - blocks[]      (StrategyBlock nodes)                                 │  │
+│  │  - edges[]       (StrategyEdge connections with flowPercent)           │  │
+│  │  - detectedLoops[] (DFS cycle detection results)                       │  │
+│  │  - yields        (Live APY data from DeFi Llama)                       │  │
+│  │  - simulationResult (Calculated projections)                           │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                      │                                       │
+│              ┌───────────────────────┼───────────────────────┐              │
+│              ▼                       ▼                       ▼              │
+│  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐        │
+│  │  Loop Detection  │   │    Simulation    │   │   Live APY       │        │
+│  │  (loop-detection │   │   Engine         │   │   Integration    │        │
+│  │   .ts)           │   │  (simulation.ts) │   │   (yields svc)   │        │
+│  │                  │   │                  │   │                  │        │
+│  │  DFS cycle find  │   │  Topological     │   │  DeFi Llama      │        │
+│  │  Leverage calc   │   │  sort + flow     │   │  staking/lending │        │
+│  │  Health factors  │   │  calculation     │   │  rates           │        │
+│  └──────────────────┘   └──────────────────┘   └──────────────────┘        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 13.3 Key Components
+
+#### Canvas (`src/components/strategy-builder/canvas.tsx`)
+
+The main React Flow wrapper providing:
+
+- **Drag-and-drop** from sidebar to create blocks
+- **Node/edge event handlers** for selection and connection
+- **Ambient background particles** (floating gradient orbs)
+- **Connection celebration effects** (particle burst on new edge)
+- **MiniMap** with type-based node coloring
+- **Loop badge positioning** based on viewport coordinates
+
+```typescript
+// Custom node and edge type registration
+const nodeTypes: NodeTypes = {
+  input: InputBlock,
+  stake: StakeBlock,
+  lend: LendBlock,
+  borrow: BorrowBlock,
+  swap: SwapBlock,
+};
+
+const edgeTypes: EdgeTypes = {
+  flow: FlowEdge,
+};
+```
+
+#### Block Components (`src/components/strategy-builder/blocks/`)
+
+| Block | File | Purpose |
+|-------|------|---------|
+| **Input** | `input-block.tsx` | Starting point - asset type and amount |
+| **Stake** | `stake-block.tsx` | LST protocols (Lido, EtherFi, Rocket Pool) |
+| **Lend** | `lend-block.tsx` | Supply to lending protocols (Aave, Compound) |
+| **Borrow** | `borrow-block.tsx` | Borrow against collateral with LTV config |
+| **Swap** | `swap-block.tsx` | Token swaps with slippage settings |
+| **Base** | `base-block.tsx` | Shared visual styling, handles, animations |
+
+All blocks extend `BaseBlock` which provides:
+
+```typescript
+interface BaseBlockProps {
+  blockType: "input" | "stake" | "lend" | "borrow" | "swap" | "loop";
+  label: string;
+  icon: ReactNode;
+  hasInput?: boolean;  // Show left handle
+  hasOutput?: boolean; // Show right handle
+  isValid?: boolean;
+  blockId?: string;    // For output allocation badge
+}
+```
+
+#### Flow Edge (`src/components/strategy-builder/edges/flow-edge.tsx`)
+
+Custom edge component with:
+
+- **Flow percentage label** showing allocation (e.g., "0.5 ETH 50%")
+- **Click-to-edit popover** with slider and amount input
+- **Auto-balancing** - adjusting one edge rebalances siblings
+- **Animated particles** using SVG `<animateMotion>` along bezier path
+- **Gradient energy overlay** for visual flow indication
+- **Partial flow styling** (dashed line, amber color for <100%)
+
+```typescript
+// Particle animation along edge path
+<animateMotion
+  dur={`${duration}s`}
+  repeatCount="indefinite"
+  begin={`${delay}s`}
+  path={edgePath}
+/>
+```
+
+### 13.4 Zustand Store (`src/lib/strategy/store.ts`)
+
+Central state management with auto-balancing edge logic:
+
+```typescript
+interface StrategyState {
+  // Canvas state
+  blocks: StrategyBlock[];
+  edges: StrategyEdge[];
+
+  // Selection
+  selectedBlockId: string | null;
+
+  // Simulation
+  simulationResult: SimulationResult | null;
+  isSimulating: boolean;
+
+  // Live yields (from DeFi Llama)
+  yields: StrategyApyData | null;
+  yieldsLoading: boolean;
+
+  // Detected leverage loops
+  detectedLoops: DetectedLoop[];
+}
+```
+
+**Key behaviors:**
+
+1. **Auto-balancing edges**: When adding a new edge from a source, all sibling edges from that source are redistributed equally:
+   ```typescript
+   // Calculate equal distribution
+   const equalPercent = Math.round((100 / totalEdgesFromSource) * 10) / 10;
+   ```
+
+2. **Loop detection on edge changes**: Cycles are detected after any edge addition/removal:
+   ```typescript
+   const newEdges = [...updatedEdges, newEdge];
+   const loops = detectLoops(state.blocks, newEdges);
+   return { edges: newEdges, detectedLoops: loops };
+   ```
+
+3. **Yield accessors with fallbacks**:
+   ```typescript
+   getStakingApy: (protocol) => {
+     const { yields } = get();
+     if (yields?.staking) {
+       const apy = yields.staking[protocol];
+       if (apy !== undefined) return apy;
+     }
+     return getDefaultApy(protocol); // Hardcoded fallback
+   }
+   ```
+
+### 13.5 Loop Detection (`src/lib/strategy/loop-detection.ts`)
+
+DFS-based cycle detection for identifying leverage loops:
+
+```typescript
+/**
+ * Detect all loops in the strategy graph
+ * Uses depth-first search with recursion stack tracking
+ */
+export function detectLoops(
+  blocks: StrategyBlock[],
+  edges: StrategyEdge[]
+): DetectedLoop[];
+
+/**
+ * Calculate effective leverage for a loop
+ */
+export function calculateLoopIterations(
+  initialValue: number,
+  ltvPercent: number,
+  iterations: number
+): {
+  iterationValues: number[];
+  totalValue: number;
+  effectiveLeverage: number;
+};
+
+/**
+ * Calculate health factor at each iteration
+ */
+export function calculateHealthFactors(
+  initialValue: number,
+  ltvPercent: number,
+  liquidationThreshold: number,
+  iterations: number
+): HealthFactorResult[];
+```
+
+**Algorithm:**
+1. Build adjacency graph from blocks and edges
+2. DFS traversal tracking visited and recursion stack
+3. When revisiting a node in recursion stack, extract cycle path
+4. Classify loops (leverage pattern = stake + lend + borrow)
+
+### 13.6 Simulation Engine (`src/lib/strategy/simulation.ts`)
+
+Calculates yields, risks, and projections using topological traversal:
+
+```typescript
+export function simulateStrategy(
+  blocks: StrategyBlock[],
+  edges: StrategyEdge[]
+): SimulationResult;
+
+interface SimulationResult {
+  isValid: boolean;
+  errorMessage?: string;
+
+  // Yields
+  grossApy: number;      // Before costs
+  netApy: number;        // After costs
+
+  // Projections
+  initialValue: number;
+  projectedValue1Y: number;
+  projectedYield1Y: number;
+
+  // Costs
+  gasCostUsd: number;
+  protocolFees: number;
+
+  // Risk metrics
+  riskLevel: "low" | "medium" | "high" | "extreme";
+  riskScore: number;     // 0-100
+  liquidationPrice: number | null;
+  healthFactor: number | null;
+  leverage: number;
+
+  // Breakdown
+  yieldSources: YieldSource[];
+}
+```
+
+**Calculation flow:**
+1. **Topological sort** blocks using Kahn's algorithm (detects cycles)
+2. **Process each block** in dependency order:
+   - Track value flow through graph
+   - Accumulate APY from yield sources
+   - Calculate leverage and health factors
+   - Sum gas costs and protocol fees
+3. **Compute net APY** after amortizing costs over 1 year
+4. **Determine risk level** based on score and leverage
+
+### 13.7 Live APY Integration
+
+APY data flows from DeFi Llama through the yields service:
+
+```typescript
+// Store actions for yield data
+setYields: (yields: StrategyApyData) => void;
+setYieldsLoading: (loading: boolean) => void;
+getStakingApy: (protocol: string) => number;
+getLendingApy: (protocol: string, type: "supply" | "borrow", asset?: string) => number;
+```
+
+**Data structure from yields service:**
+```typescript
+interface StrategyApyData {
+  staking: {
+    lido: number;      // e.g., 3.2
+    etherfi: number;   // e.g., 3.8
+    rocketpool: number;
+    // ...
+  };
+  lending: {
+    "aave-v3": {
+      ETH: { supply: number; borrow: number };
+      weETH: { supply: number; borrow: number };
+      // ...
+    };
+    // ... other protocols
+  };
+}
+```
+
+### 13.8 Animation System
+
+The Strategy Builder features a cohesive animation system:
+
+#### Block Entrance Animations (Framer Motion)
+```typescript
+<motion.div
+  initial={{ scale: 0.5, opacity: 0, y: -20 }}
+  animate={{ scale: 1, opacity: 1, y: 0 }}
+  transition={{
+    type: "spring",
+    stiffness: 400,
+    damping: 25,
+    mass: 0.8,
+  }}
+  whileHover={{ scale: 1.02 }}
+>
+```
+
+#### Edge Flow Particles (SVG animateMotion)
+```typescript
+<circle r={3} fill={color} filter={`url(#glow-${id})`}>
+  <animateMotion
+    dur={`${duration}s`}
+    repeatCount="indefinite"
+    begin={`${delay}s`}
+    path={bezierPath}
+  />
+  <animate attributeName="r" values="2;4;2" dur="1s" repeatCount="indefinite" />
+  <animate attributeName="opacity" values="0.3;1;0.3" dur={`${duration}s`} />
+</circle>
+```
+
+#### Connection Celebration Effect
+When a new edge is created, a particle burst emanates from the connection point:
+```typescript
+function ConnectionCelebration({ x, y, onComplete }) {
+  // Generate 12 particles in burst pattern
+  // Each particle animates outward with Framer Motion
+  // Central flash effect expands and fades
+}
+```
+
+#### Ambient Canvas Background
+Floating particles and gradient orbs create depth:
+```typescript
+function AmbientParticles() {
+  // 20 floating particles with y-axis drift
+  // 2 large gradient orbs with slow x/y motion
+}
+```
+
+### 13.9 Type Definitions (`src/lib/strategy/types.ts`)
+
+Core types for the strategy system:
+
+```typescript
+// Block types
+export type BlockType = "input" | "stake" | "lend" | "borrow" | "swap" | "lp" | "loop";
+export type AssetType = "ETH" | "USDC" | "stETH" | "eETH" | "weETH" | /* ... */;
+export type StakeProtocol = "lido" | "etherfi" | "rocketpool" | "frax" | "coinbase";
+export type LendProtocol = "aave-v3" | "compound-v3" | "morpho" | "spark";
+
+// React Flow integration
+export type StrategyBlock = Node<BlockData, BlockType>;
+export type StrategyEdge = Edge<StrategyEdgeData>;
+
+// Edge data with flow percentage
+export interface StrategyEdgeData {
+  flowPercent: number;  // 0-100, default 100
+  flowAmount?: number;  // Calculated from source
+  isPartOfLoop?: boolean;
+}
+
+// Detected leverage loop
+export interface DetectedLoop {
+  id: string;
+  blockIds: string[];
+  edgeIds: string[];
+  iterations: number;
+  entryBlockId: string;
+  exitBlockId: string;
+}
+```
+
+### 13.10 File Structure
+
+```
+src/
+├── components/strategy-builder/
+│   ├── canvas.tsx              # React Flow canvas with ambient effects
+│   ├── sidebar.tsx             # Block palette for drag-and-drop
+│   ├── loop-badge.tsx          # Loop iteration controls overlay
+│   ├── index.ts                # Public exports
+│   ├── blocks/
+│   │   ├── base-block.tsx      # Shared block styling and handles
+│   │   ├── input-block.tsx     # Asset input (ETH amount)
+│   │   ├── stake-block.tsx     # LST staking protocols
+│   │   ├── lend-block.tsx      # Lending supply
+│   │   ├── borrow-block.tsx    # Borrow with LTV
+│   │   ├── swap-block.tsx      # Token swap
+│   │   └── index.ts
+│   └── edges/
+│       └── flow-edge.tsx       # Animated flow edges with particles
+│
+├── lib/strategy/
+│   ├── store.ts                # Zustand store with auto-balancing
+│   ├── types.ts                # TypeScript definitions
+│   ├── simulation.ts           # Strategy simulation engine
+│   ├── loop-detection.ts       # DFS cycle detection
+│   ├── protocols.ts            # Protocol metadata and defaults
+│   ├── templates.ts            # Pre-built strategy templates
+│   └── index.ts
+```
+
+---
+
 ## Changelog
+
+### v1.2 (January 2025)
+- Added Strategy Builder Architecture section (13) covering React Flow integration
+- Documented Zustand store with auto-balancing edge logic
+- Added loop detection algorithm (DFS-based cycle detection) documentation
+- Added simulation engine documentation with topological traversal
+- Documented animation system (Framer Motion, SVG animateMotion)
+- Added live APY integration with DeFi Llama yields service
 
 ### v1.1 (January 2025)
 - Added Graph-accelerated adapters section (7.1.1) for Aave V3, Compound V3, Lido, EtherFi

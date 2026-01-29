@@ -61,14 +61,14 @@ function InputBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) {
     >
       <div className="space-y-3">
         {/* Asset Selector */}
-        <div>
+        <div className="nodrag">
           <label className="block text-xs text-white/50 mb-1">Asset</label>
           <select
             value={blockData.asset}
             onChange={handleAssetChange}
-            className="w-full px-2 py-1.5 rounded-lg bg-[#1a1a24] border border-white/10
+            className="nodrag w-full px-2 py-1.5 rounded-lg bg-[#1a1a24] border border-white/10
                        text-sm text-white focus:border-blue-500 focus:outline-none
-                       transition-colors"
+                       transition-colors cursor-pointer"
           >
             {ASSETS.map((asset) => (
               <option key={asset.value} value={asset.value}>
@@ -79,7 +79,7 @@ function InputBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) {
         </div>
 
         {/* Amount Input */}
-        <div>
+        <div className="nodrag">
           <label className="block text-xs text-white/50 mb-1">Amount</label>
           <div className="relative">
             <input
@@ -88,7 +88,7 @@ function InputBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) {
               onChange={handleAmountChange}
               min={0}
               step={0.1}
-              className="w-full px-2 py-1.5 pr-12 rounded-lg bg-[#1a1a24] border border-white/10
+              className="nodrag w-full px-2 py-1.5 pr-12 rounded-lg bg-[#1a1a24] border border-white/10
                          text-sm text-white focus:border-blue-500 focus:outline-none
                          transition-colors [appearance:textfield]
                          [&::-webkit-outer-spin-button]:appearance-none

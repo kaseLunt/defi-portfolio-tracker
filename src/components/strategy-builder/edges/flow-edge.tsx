@@ -5,9 +5,10 @@
  *
  * Custom edge that displays flow amount/percentage on hover.
  * Supports click-to-edit for partial allocations with slider and ETH input.
+ * Features animated particles flowing along the connection path.
  */
 
-import { memo, useState, useCallback, useMemo } from "react";
+import { memo, useState, useCallback, useMemo, useId } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -15,7 +16,87 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 import { useStrategyStore } from "@/lib/strategy/store";
-import type { StrategyEdgeData, InputBlockData } from "@/lib/strategy/types";
+import { useLivePrices } from "@/hooks/use-live-prices";
+import type {
+  StrategyEdgeData,
+  InputBlockData,
+  StakeBlockData,
+  LendBlockData,
+  BorrowBlockData,
+  SwapBlockData,
+  AssetType,
+} from "@/lib/strategy/types";
+
+// ============================================================================
+// Animated Flow Particles
+// ============================================================================
+
+interface FlowParticlesProps {
+  path: string;
+  color: string;
+  particleCount: number;
+  speed: number; // 0-1, affects animation duration
+  isActive: boolean;
+}
+
+function FlowParticles({ path, color, particleCount, speed, isActive }: FlowParticlesProps) {
+  const id = useId();
+
+  if (!isActive) return null;
+
+  // Create staggered particles
+  const particles = Array.from({ length: particleCount }, (_, i) => {
+    const delay = (i / particleCount) * (3 - speed * 2); // Stagger start times
+    const duration = 3 - speed * 2; // Faster flow = shorter duration
+
+    return (
+      <circle
+        key={i}
+        r={3}
+        fill={color}
+        filter={`url(#glow-${id})`}
+      >
+        <animateMotion
+          dur={`${duration}s`}
+          repeatCount="indefinite"
+          begin={`${delay}s`}
+          path={path}
+        />
+        {/* Pulsing size */}
+        <animate
+          attributeName="r"
+          values="2;4;2"
+          dur="1s"
+          repeatCount="indefinite"
+        />
+        {/* Fading opacity */}
+        <animate
+          attributeName="opacity"
+          values="0.3;1;0.3"
+          dur={`${duration}s`}
+          repeatCount="indefinite"
+          begin={`${delay}s`}
+        />
+      </circle>
+    );
+  });
+
+  return (
+    <g>
+      {/* Glow filter for particles */}
+      <defs>
+        <filter id={`glow-${id}`} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+          <feMerge>
+            <feMergeNode in="coloredBlur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      {particles}
+    </g>
+  );
+}
 
 // ============================================================================
 // Flow Edge Component
@@ -40,6 +121,10 @@ function FlowEdgeComponent({
   const blocks = useStrategyStore((state) => state.blocks);
   const edges = useStrategyStore((state) => state.edges);
   const updateEdgeFlowPercent = useStrategyStore((state) => state.updateEdgeFlowPercent);
+  const { prices } = useLivePrices();
+
+  // Get real ETH price, fallback to 3000 if not available
+  const ethPrice = prices["ethereum"]?.usd ?? 3000;
 
   // Get edge data with defaults
   const edgeData = (data as StrategyEdgeData) ?? { flowPercent: 100 };
@@ -51,7 +136,7 @@ function FlowEdgeComponent({
     ? blocks.find((b) => b.id === sourceEdge.source)
     : null;
 
-  // Calculate what actually flows INTO the source block (tracing through the graph)
+  // Calculate what actually flows OUT of the source block (accounting for transformations)
   const sourceValue = useMemo(() => {
     if (!sourceBlock) return 0;
 
@@ -60,9 +145,8 @@ function FlowEdgeComponent({
       return (sourceBlock.data as InputBlockData).amount;
     }
 
-    // Otherwise, trace backwards to find what flows into this block
-    // by summing all incoming edges' flow amounts
-    const calculateInflow = (blockId: string, visited: Set<string> = new Set()): number => {
+    // Calculate what flows into a block, then apply its transformation
+    const calculateBlockOutput = (blockId: string, visited: Set<string> = new Set()): number => {
       // Prevent infinite loops
       if (visited.has(blockId)) return 0;
       visited.add(blockId);
@@ -85,23 +169,51 @@ function FlowEdgeComponent({
         const edgeData = edge.data as StrategyEdgeData | undefined;
         const edgePercent = edgeData?.flowPercent ?? 100;
 
-        // Recursively get the inflow to the source of this edge
-        const sourceInflow = calculateInflow(edge.source, visited);
-        totalInflow += (sourceInflow * edgePercent) / 100;
+        // Recursively get the OUTPUT of the source block
+        const sourceOutput = calculateBlockOutput(edge.source, visited);
+        totalInflow += (sourceOutput * edgePercent) / 100;
       }
 
+      // Apply block-specific transformations
+      if (block.data.type === "borrow") {
+        // Borrow block outputs LTV% of input as borrowed amount
+        const borrowData = block.data as BorrowBlockData;
+        return totalInflow * (borrowData.ltvPercent / 100);
+      }
+
+      if (block.data.type === "swap") {
+        // Swap converts between assets - need to apply price conversion
+        const swapData = block.data as SwapBlockData;
+
+        // Get asset prices (stablecoins = $1, ETH-based assets = live ETH price)
+        const getAssetPrice = (asset: AssetType): number => {
+          const stablecoins = ["USDC", "USDT", "DAI"];
+          if (stablecoins.includes(asset)) return 1;
+          // ETH and LSTs use real ETH price
+          return ethPrice;
+        };
+
+        const fromPrice = getAssetPrice(swapData.fromAsset);
+        const toPrice = getAssetPrice(swapData.toAsset);
+
+        // Convert: inputAmount * fromPrice / toPrice
+        // e.g., 2.33 eETH * 3300 / 1 = 7689 USDC
+        return (totalInflow * fromPrice) / toPrice;
+      }
+
+      // Other blocks pass through (stake, lend - approximately same value)
       return totalInflow;
     };
 
-    return calculateInflow(sourceBlock.id);
-  }, [sourceBlock, blocks, edges]);
+    return calculateBlockOutput(sourceBlock.id);
+  }, [sourceBlock, blocks, edges, ethPrice]);
 
   // Calculate flow amount based on source block
   const flowAmount = useMemo(() => {
     return (sourceValue * flowPercent) / 100;
   }, [sourceValue, flowPercent]);
 
-  // Get bezier path
+  // Get the bezier path
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -132,13 +244,58 @@ function FlowEdgeComponent({
   // Determine if this is a partial flow
   const isPartialFlow = flowPercent < 100;
 
-  // Get asset symbol from source block
-  const assetSymbol = useMemo(() => {
-    if (sourceBlock?.data.type === "input") {
-      return (sourceBlock.data as InputBlockData).asset || "ETH";
-    }
-    return "ETH";
-  }, [sourceBlock]);
+  // Get output asset symbol from source block (traces through graph for pass-through blocks)
+  const assetSymbol = useMemo((): AssetType => {
+    if (!sourceBlock) return "ETH";
+
+    // Helper to trace backwards to find the asset flowing into a block
+    const traceInputAsset = (blockId: string, visited: Set<string> = new Set()): AssetType => {
+      if (visited.has(blockId)) return "ETH";
+      visited.add(blockId);
+
+      const block = blocks.find((b) => b.id === blockId);
+      if (!block) return "ETH";
+
+      // Base case: input block provides its asset
+      if (block.data.type === "input") {
+        return (block.data as InputBlockData).asset || "ETH";
+      }
+
+      // Stake outputs its outputAsset
+      if (block.data.type === "stake") {
+        return (block.data as StakeBlockData).outputAsset || "ETH";
+      }
+
+      // Swap outputs its toAsset
+      if (block.data.type === "swap") {
+        return (block.data as SwapBlockData).toAsset || "ETH";
+      }
+
+      // Borrow outputs its borrowed asset
+      if (block.data.type === "borrow") {
+        return (block.data as BorrowBlockData).asset || "ETH";
+      }
+
+      // Lend passes through the input asset - trace backwards
+      if (block.data.type === "lend") {
+        const incomingEdge = edges.find((e) => e.target === blockId);
+        if (incomingEdge) {
+          return traceInputAsset(incomingEdge.source, visited);
+        }
+        return "ETH";
+      }
+
+      // Default: trace backwards
+      const incomingEdge = edges.find((e) => e.target === blockId);
+      if (incomingEdge) {
+        return traceInputAsset(incomingEdge.source, visited);
+      }
+
+      return "ETH";
+    };
+
+    return traceInputAsset(sourceBlock.id);
+  }, [sourceBlock, blocks, edges]);
 
   // Format display value
   const formatFlowDisplay = () => {
@@ -148,20 +305,88 @@ function FlowEdgeComponent({
     return flowAmount.toFixed(4);
   };
 
+  // Calculate particle speed based on flow amount (more flow = faster)
+  const particleSpeed = useMemo(() => {
+    return Math.min(1, Math.max(0.3, flowAmount / 10));
+  }, [flowAmount]);
+
+  // Particle count based on flow percentage
+  const particleCount = useMemo(() => {
+    if (flowPercent >= 100) return 5;
+    if (flowPercent >= 50) return 4;
+    return 3;
+  }, [flowPercent]);
+
+  // Edge colors based on flow state
+  const edgeColor = isPartialFlow
+    ? "#F59E0B" // Amber for partial flow
+    : "#735CFF"; // Purple for normal flow
+
+  const glowColor = isPartialFlow
+    ? "rgba(245, 158, 11, 0.4)"
+    : "rgba(115, 92, 255, 0.4)";
+
+  const uniqueId = useId();
+
   return (
     <>
-      {/* Edge Path */}
+      {/* Glow/trail effect underneath */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke={glowColor}
+        strokeWidth={isHovered ? 12 : 8}
+        strokeLinecap="round"
+        style={{
+          filter: "blur(4px)",
+          transition: "all 0.2s ease",
+        }}
+      />
+
+      {/* Main Edge Path */}
       <BaseEdge
         id={id}
         path={edgePath}
         style={{
-          stroke: isPartialFlow ? "#F59E0B" : "#735CFF",
+          stroke: edgeColor,
           strokeWidth: selected || isHovered ? 3 : 2,
-          strokeDasharray: isPartialFlow ? "5,5" : "none",
-          filter: isHovered ? "drop-shadow(0 0 6px rgba(115, 92, 255, 0.5))" : "none",
+          strokeDasharray: isPartialFlow ? "8,4" : "none",
+          filter: isHovered ? `drop-shadow(0 0 8px ${glowColor})` : "none",
           transition: "all 0.2s ease",
         }}
       />
+
+      {/* Animated flow particles */}
+      <FlowParticles
+        path={edgePath}
+        color={edgeColor}
+        particleCount={particleCount}
+        speed={particleSpeed}
+        isActive={flowAmount > 0}
+      />
+
+      {/* Animated gradient overlay for "energy" feel */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke={`url(#flow-gradient-${uniqueId})`}
+        strokeWidth={2}
+        strokeLinecap="round"
+        style={{ opacity: 0.6 }}
+      />
+      <defs>
+        <linearGradient id={`flow-gradient-${uniqueId}`} gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor={edgeColor} stopOpacity="0">
+            <animate attributeName="offset" values="-1;1" dur="2s" repeatCount="indefinite" />
+          </stop>
+          <stop offset="50%" stopColor={edgeColor} stopOpacity="1">
+            <animate attributeName="offset" values="-0.5;1.5" dur="2s" repeatCount="indefinite" />
+          </stop>
+          <stop offset="100%" stopColor={edgeColor} stopOpacity="0">
+            <animate attributeName="offset" values="0;2" dur="2s" repeatCount="indefinite" />
+          </stop>
+        </linearGradient>
+      </defs>
 
       {/* Invisible wider path for easier hover/click */}
       <path
@@ -172,7 +397,7 @@ function FlowEdgeComponent({
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onClick={handleEdgeClick}
-        style={{ cursor: "pointer" }}
+        style={{ cursor: 'pointer' }}
       />
 
       {/* Flow Label - always visible with different states */}
@@ -249,7 +474,7 @@ function FlowEdgeComponent({
               </div>
 
               {/* Slider */}
-              <div className="mb-4">
+              <div className="mb-4 nodrag">
                 <input
                   type="range"
                   value={flowPercent}
@@ -257,7 +482,7 @@ function FlowEdgeComponent({
                   min={0}
                   max={100}
                   step={1}
-                  className="w-full h-2 rounded-full appearance-none cursor-pointer
+                  className="nodrag w-full h-2 rounded-full appearance-none cursor-pointer
                            bg-gradient-to-r from-white/10 via-purple-500/50 to-purple-500
                            [&::-webkit-slider-thumb]:appearance-none
                            [&::-webkit-slider-thumb]:w-4
@@ -282,14 +507,14 @@ function FlowEdgeComponent({
               </div>
 
               {/* Input field - switches between % and ETH */}
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-3 mb-4 nodrag">
                 {inputMode === "percent" ? (
                   <div className="flex-1 flex items-center gap-2 bg-[#0a0a0f] rounded-lg border border-white/10 px-3 py-2">
                     <input
                       type="number"
                       value={Math.round(flowPercent * 10) / 10}
                       onChange={(e) => handleFlowChange(Number(e.target.value))}
-                      className="flex-1 bg-transparent text-white text-lg font-semibold
+                      className="nodrag flex-1 bg-transparent text-white text-lg font-semibold
                                focus:outline-none [appearance:textfield]
                                [&::-webkit-outer-spin-button]:appearance-none
                                [&::-webkit-inner-spin-button]:appearance-none"
@@ -305,7 +530,7 @@ function FlowEdgeComponent({
                       type="number"
                       value={Math.round(flowAmount * 10000) / 10000}
                       onChange={(e) => handleEthChange(Number(e.target.value))}
-                      className="flex-1 bg-transparent text-white text-lg font-semibold
+                      className="nodrag flex-1 bg-transparent text-white text-lg font-semibold
                                focus:outline-none [appearance:textfield]
                                [&::-webkit-outer-spin-button]:appearance-none
                                [&::-webkit-inner-spin-button]:appearance-none"

@@ -109,24 +109,10 @@ export interface StrategyEdgeData {
   label?: string;
   flowPercent: number; // 0-100, default 100
   flowAmount?: number; // Calculated based on source block
-  isPartOfLoop?: boolean;
   [key: string]: unknown;
 }
 
 export type StrategyEdge = Edge<StrategyEdgeData>;
-
-// ============================================================================
-// Loop Detection
-// ============================================================================
-
-export interface DetectedLoop {
-  id: string;
-  blockIds: string[];      // Block IDs in this loop
-  edgeIds: string[];       // Edge IDs forming the loop
-  iterations: number;      // User-configured (default 1)
-  entryBlockId: string;    // First block in loop
-  exitBlockId: string;     // Block that loops back
-}
 
 // ============================================================================
 // Strategy
@@ -183,6 +169,24 @@ export interface SimulationResult {
 
   // Breakdown
   yieldSources: YieldSource[];
+
+  // Per-block computed values (for value propagation display)
+  blockValues: Record<string, ComputedBlockValue>;
+}
+
+// ============================================================================
+// Computed Block Values (for value propagation)
+// ============================================================================
+
+export interface ComputedBlockValue {
+  inputAsset: AssetType | null;
+  inputAmount: number;
+  inputValueUsd: number;
+  outputAsset: AssetType | null;
+  outputAmount: number;
+  outputValueUsd: number;
+  gasCostUsd: number;
+  apy: number;
 }
 
 // ============================================================================
@@ -232,4 +236,19 @@ export interface StrategyTemplate {
   blocks: Partial<StrategyBlock>[];
   edges: Partial<StrategyEdge>[];
   tags: string[];
+}
+
+// ============================================================================
+// Saved Systems (User-created reusable loops)
+// ============================================================================
+
+export interface SavedSystem {
+  id: string;
+  name: string;
+  description?: string;
+  blocks: StrategyBlock[]; // Positions relative to first block
+  edges: StrategyEdge[];
+  blockCount: number;
+  createdAt: number;
+  updatedAt: number;
 }

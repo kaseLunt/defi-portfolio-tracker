@@ -4,6 +4,19 @@ A high-performance DeFi portfolio tracker for EtherFi, aggregating positions fro
 
 ## Key Features
 
+### Strategy Builder
+
+Build and simulate complex DeFi yield strategies with a visual drag-and-drop interface.
+
+- **Visual Strategy Canvas**: Drag-and-drop blocks to design multi-step DeFi strategies
+- **Leverage Loop Support**: Create recursive borrowing strategies (e.g., deposit ETH, borrow stablecoin, swap back to ETH, repeat)
+- **Real-time APY Simulation**: See projected yields update instantly as you build
+- **Premium Animated UI**: Smooth block animations, particle effects on connections, and celebration effects
+
+Access the Strategy Builder at `/strategies` after starting the application.
+
+### Portfolio Tracking
+
 - **The Graph Integration**: Sub-second DeFi position queries (~100-500ms) using decentralized subgraph indexing, replacing slow RPC calls (~3-8s) for a ~25x performance improvement
 - **8 DeFi Protocols**: Aave V3, Compound V3, Lido, EtherFi, EigenLayer, Morpho, Spark, Pendle
 - **5 EVM Chains**: Ethereum, Arbitrum, Optimism, Base, Polygon
@@ -16,6 +29,7 @@ A high-performance DeFi portfolio tracker for EtherFi, aggregating positions fro
 | Category | Technologies |
 |----------|-------------|
 | **Frontend** | Next.js 16, React 19, TailwindCSS, shadcn/ui, Recharts |
+| **Strategy Builder** | React Flow (@xyflow/react), Framer Motion |
 | **Backend** | tRPC 11, Prisma 7, PostgreSQL, Redis, BullMQ |
 | **Web3** | wagmi v3, viem v2, The Graph, SIWE |
 | **APIs** | DeFi Llama (prices/yields), GoldRush (token balances), CoinGecko (live prices) |
@@ -119,6 +133,19 @@ For background job processing (optional):
 ```bash
 npm run workers        # Start BullMQ workers in separate terminal
 ```
+
+### Using the Strategy Builder
+
+1. Navigate to `/strategies` in your browser
+2. Drag protocol blocks from the sidebar onto the canvas
+3. Connect blocks by dragging from output handles to input handles
+4. Configure each block's parameters (asset, amount, leverage loops)
+5. View real-time APY simulation in the results panel
+
+The Strategy Builder supports:
+- **Protocol blocks**: Aave, Compound, Lido, EtherFi, Morpho
+- **Action types**: Supply, Borrow, Stake, Loop
+- **Leverage loops**: Set loop count for recursive strategies
 
 ## Environment Variables
 

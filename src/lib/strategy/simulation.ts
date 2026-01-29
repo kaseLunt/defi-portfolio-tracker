@@ -2,12 +2,13 @@
  * DeFi Strategy Builder - Simulation Engine
  *
  * Calculates yields, risks, and projections for a strategy.
- * Uses topological sort to process blocks in correct order.
+ * Processes blocks in topological order to simulate flow through the strategy.
  */
 
 import type {
   StrategyBlock,
   StrategyEdge,
+  StrategyEdgeData,
   SimulationResult,
   RiskLevel,
   YieldSource,
@@ -17,6 +18,7 @@ import type {
   BorrowBlockData,
   SwapBlockData,
   AssetType,
+  ComputedBlockValue,
 } from "./types";
 import {
   getStakingProtocol,
@@ -31,13 +33,19 @@ import {
 // ============================================================================
 
 interface BlockState {
-  value: number; // USD value at this block
-  asset: string;
+  value: number; // USD value at this block (output)
+  asset: string; // Output asset
   apy: number; // Cumulative APY at this point
   leverage: number;
   isCollateral: boolean;
   healthFactor: number | null;
   liquidationPrice: number | null;
+  // For value propagation display
+  inputAsset: string | null;
+  inputAmount: number;
+  inputValueUsd: number;
+  outputAmount: number;
+  gasCostUsd: number;
 }
 
 interface SimulationContext {
@@ -51,6 +59,12 @@ interface SimulationContext {
   healthFactor: number | null;
   liquidationPrice: number | null;
 }
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const ETH_PRICE = 3300; // Demo price - would fetch from API in production
 
 // ============================================================================
 // Graph Utilities
@@ -91,7 +105,55 @@ function buildReverseAdjacency(
 }
 
 /**
+ * Get the flow percent for an edge (default 100%)
+ */
+function getEdgeFlowPercent(edges: StrategyEdge[], sourceId: string, targetId: string): number {
+  const edge = edges.find(e => e.source === sourceId && e.target === targetId);
+  if (!edge) return 100;
+  const data = edge.data as StrategyEdgeData | undefined;
+  return data?.flowPercent ?? 100;
+}
+
+/**
+ * Detect if graph has cycles using DFS
+ */
+function hasCycle(
+  blocks: StrategyBlock[],
+  edges: StrategyEdge[]
+): boolean {
+  const adj = buildAdjacencyList(edges);
+  const visited = new Set<string>();
+  const recursionStack = new Set<string>();
+
+  function dfs(nodeId: string): boolean {
+    visited.add(nodeId);
+    recursionStack.add(nodeId);
+
+    const neighbors = adj.get(nodeId) ?? [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        if (dfs(neighbor)) return true;
+      } else if (recursionStack.has(neighbor)) {
+        return true;
+      }
+    }
+
+    recursionStack.delete(nodeId);
+    return false;
+  }
+
+  for (const block of blocks) {
+    if (!visited.has(block.id)) {
+      if (dfs(block.id)) return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Topological sort of blocks (Kahn's algorithm)
+ * Only works on acyclic graphs
  */
 function topologicalSort(
   blocks: StrategyBlock[],
@@ -137,11 +199,6 @@ function topologicalSort(
     }
   }
 
-  // Check for cycles
-  if (sorted.length !== blocks.length) {
-    throw new Error("Strategy contains cycles - invalid configuration");
-  }
-
   return sorted;
 }
 
@@ -149,21 +206,12 @@ function topologicalSort(
 // Block Processors
 // ============================================================================
 
-/**
- * Process Input block
- */
 function processInputBlock(
   block: StrategyBlock,
-  ctx: SimulationContext,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _edges: StrategyEdge[]
+  ctx: SimulationContext
 ): BlockState {
   const data = block.data as InputBlockData;
-
-  // Assume ETH = $3300 for demo (would fetch from API)
-  const ETH_PRICE = 3300;
   const value = data.asset === "ETH" ? data.amount * ETH_PRICE : data.amount;
-
   ctx.initialValue = value;
 
   return {
@@ -174,12 +222,15 @@ function processInputBlock(
     isCollateral: false,
     healthFactor: null,
     liquidationPrice: null,
+    // Value propagation
+    inputAsset: null,
+    inputAmount: 0,
+    inputValueUsd: 0,
+    outputAmount: data.amount,
+    gasCostUsd: 0,
   };
 }
 
-/**
- * Process Stake block
- */
 function processStakeBlock(
   block: StrategyBlock,
   ctx: SimulationContext,
@@ -189,49 +240,59 @@ function processStakeBlock(
   const reverseAdj = buildReverseAdjacency(edges);
   const inputIds = reverseAdj.get(block.id) ?? [];
 
-  // Get input state
   let inputValue = 0;
   let inputLeverage = 1;
+  let inputAsset: string | null = null;
+  let inputAmount = 0;
   for (const inputId of inputIds) {
     const inputState = ctx.blockStates.get(inputId);
     if (inputState) {
-      inputValue += inputState.value;
+      // Apply edge flow percentage
+      const flowPercent = getEdgeFlowPercent(edges, inputId, block.id);
+      const flowMultiplier = flowPercent / 100;
+
+      inputValue += inputState.value * flowMultiplier;
       inputLeverage = Math.max(inputLeverage, inputState.leverage);
+      inputAsset = inputState.asset;
+      inputAmount += inputState.outputAmount * flowMultiplier;
     }
   }
 
-  // Get staking APY
   const protocol = getStakingProtocol(data.protocol);
   const apy = data.apy ?? getDefaultApy(data.protocol);
+  const gasCost = GAS_COSTS.stake;
 
-  // Add yield source
   ctx.yieldSources.push({
     protocol: protocol?.name ?? data.protocol,
     type: "stake",
     apy,
-    weight: (inputValue / ctx.initialValue) * 100,
+    weight: ctx.initialValue > 0 ? (inputValue / ctx.initialValue) * 100 : 100,
   });
 
-  // Add gas cost
-  ctx.totalGasCost += GAS_COSTS.stake;
-
-  // Add protocol risk
+  ctx.totalGasCost += gasCost;
   ctx.riskScore += (protocol?.riskScore ?? 30) * 0.3;
 
+  // Output amount is roughly 1:1 for staking (minus small gas)
+  const outputValue = inputValue - gasCost;
+  const outputAmount = inputAmount; // LSTs are ~1:1 with ETH
+
   return {
-    value: inputValue, // Value stays same, just converted to LST
+    value: outputValue,
     asset: data.outputAsset,
     apy,
     leverage: inputLeverage,
     isCollateral: false,
     healthFactor: null,
     liquidationPrice: null,
+    // Value propagation
+    inputAsset,
+    inputAmount,
+    inputValueUsd: inputValue,
+    outputAmount,
+    gasCostUsd: gasCost,
   };
 }
 
-/**
- * Process Lend block
- */
 function processLendBlock(
   block: StrategyBlock,
   ctx: SimulationContext,
@@ -241,54 +302,60 @@ function processLendBlock(
   const reverseAdj = buildReverseAdjacency(edges);
   const inputIds = reverseAdj.get(block.id) ?? [];
 
-  // Get input state
   let inputValue = 0;
   let inputAsset = "ETH";
   let inputLeverage = 1;
   let inputApy = 0;
+  let inputAmount = 0;
   for (const inputId of inputIds) {
     const inputState = ctx.blockStates.get(inputId);
     if (inputState) {
-      inputValue += inputState.value;
+      // Apply edge flow percentage
+      const flowPercent = getEdgeFlowPercent(edges, inputId, block.id);
+      const flowMultiplier = flowPercent / 100;
+
+      inputValue += inputState.value * flowMultiplier;
       inputAsset = inputState.asset;
       inputLeverage = Math.max(inputLeverage, inputState.leverage);
       inputApy = Math.max(inputApy, inputState.apy);
+      inputAmount += inputState.outputAmount * flowMultiplier;
     }
   }
 
-  // Get lending APY
   const protocol = getLendingProtocol(data.protocol);
   const market = getLendingMarket(data.protocol, inputAsset as AssetType, data.chain);
   const supplyApy = data.supplyApy ?? market?.supplyApy ?? getDefaultApy(`${data.protocol}:${inputAsset.toLowerCase()}`);
+  const gasCost = GAS_COSTS.lend;
 
-  // Add yield source
   ctx.yieldSources.push({
     protocol: protocol?.name ?? data.protocol,
     type: "supply",
     apy: supplyApy,
-    weight: (inputValue / ctx.initialValue) * 100,
+    weight: ctx.initialValue > 0 ? (inputValue / ctx.initialValue) * 100 : 100,
   });
 
-  // Add gas cost
-  ctx.totalGasCost += GAS_COSTS.lend;
-
-  // Add protocol risk
+  ctx.totalGasCost += gasCost;
   ctx.riskScore += (protocol?.riskScore ?? 20) * 0.25;
 
+  const outputValue = inputValue - gasCost;
+
   return {
-    value: inputValue,
+    value: outputValue,
     asset: inputAsset,
     apy: inputApy + supplyApy,
     leverage: inputLeverage,
     isCollateral: true,
-    healthFactor: 999, // Will be calculated when borrow is added
+    healthFactor: 999,
     liquidationPrice: null,
+    // Value propagation
+    inputAsset,
+    inputAmount,
+    inputValueUsd: inputValue,
+    outputAmount: inputAmount, // Collateral is same amount
+    gasCostUsd: gasCost,
   };
 }
 
-/**
- * Process Borrow block
- */
 function processBorrowBlock(
   block: StrategyBlock,
   ctx: SimulationContext,
@@ -298,60 +365,59 @@ function processBorrowBlock(
   const reverseAdj = buildReverseAdjacency(edges);
   const inputIds = reverseAdj.get(block.id) ?? [];
 
-  // Get input state (should be from Lend block)
   let collateralValue = 0;
   let inputApy = 0;
   let inputLeverage = 1;
+  let inputAsset: string | null = null;
+  let inputAmount = 0;
   for (const inputId of inputIds) {
     const inputState = ctx.blockStates.get(inputId);
     if (inputState && inputState.isCollateral) {
-      collateralValue += inputState.value;
+      // Apply edge flow percentage
+      const flowPercent = getEdgeFlowPercent(edges, inputId, block.id);
+      const flowMultiplier = flowPercent / 100;
+
+      collateralValue += inputState.value * flowMultiplier;
       inputApy = inputState.apy;
       inputLeverage = inputState.leverage;
+      inputAsset = inputState.asset;
+      inputAmount += inputState.outputAmount * flowMultiplier;
     }
   }
 
-  // Calculate borrow amount
   const borrowValue = collateralValue * (data.ltvPercent / 100);
-
-  // Get borrow APY (negative yield)
   const borrowApy = data.borrowApy ?? getDefaultApy(`aave-v3:${data.asset.toLowerCase()}:borrow`);
+  const gasCost = GAS_COSTS.borrow;
 
-  // Add yield source (negative)
   ctx.yieldSources.push({
     protocol: "Borrow",
     type: "borrow",
     apy: -borrowApy,
-    weight: (borrowValue / ctx.initialValue) * 100,
+    weight: ctx.initialValue > 0 ? (borrowValue / ctx.initialValue) * 100 : 100,
   });
 
-  // Calculate health factor
-  // Health = (Collateral * Liq Threshold) / Debt
-  const liqThreshold = 0.825; // Default for most protocols
-  const healthFactor = (collateralValue * liqThreshold) / borrowValue;
-
-  // Calculate liquidation price
-  // Price where health factor = 1
-  const ETH_PRICE = 3300;
+  const liqThreshold = 0.825;
+  const healthFactor = borrowValue > 0 ? (collateralValue * liqThreshold) / borrowValue : Infinity;
   const liquidationPrice = ETH_PRICE * (borrowValue / (collateralValue * liqThreshold));
 
-  // Update leverage
-  const newLeverage = inputLeverage + (borrowValue / ctx.initialValue);
+  const newLeverage = ctx.initialValue > 0
+    ? inputLeverage + (borrowValue / ctx.initialValue)
+    : inputLeverage;
   ctx.leverage = Math.max(ctx.leverage, newLeverage);
 
-  // Update health factor
   ctx.healthFactor = ctx.healthFactor === null
     ? healthFactor
     : Math.min(ctx.healthFactor, healthFactor);
   ctx.liquidationPrice = liquidationPrice;
 
-  // Add gas cost
-  ctx.totalGasCost += GAS_COSTS.borrow;
+  ctx.totalGasCost += gasCost;
 
-  // Add risk based on LTV
   if (data.ltvPercent >= 80) ctx.riskScore += 30;
   else if (data.ltvPercent >= 70) ctx.riskScore += 20;
   else if (data.ltvPercent >= 60) ctx.riskScore += 10;
+
+  // Calculate borrowed amount in the borrowed asset
+  const borrowedAmount = data.asset === "ETH" ? borrowValue / ETH_PRICE : borrowValue;
 
   return {
     value: borrowValue,
@@ -361,12 +427,15 @@ function processBorrowBlock(
     isCollateral: false,
     healthFactor,
     liquidationPrice,
+    // Value propagation
+    inputAsset,
+    inputAmount,
+    inputValueUsd: collateralValue,
+    outputAmount: borrowedAmount,
+    gasCostUsd: gasCost,
   };
 }
 
-/**
- * Process Swap block
- */
 function processSwapBlock(
   block: StrategyBlock,
   ctx: SimulationContext,
@@ -376,25 +445,33 @@ function processSwapBlock(
   const reverseAdj = buildReverseAdjacency(edges);
   const inputIds = reverseAdj.get(block.id) ?? [];
 
-  // Get input state
   let inputValue = 0;
   let inputApy = 0;
   let inputLeverage = 1;
+  let inputAsset: string | null = null;
+  let inputAmount = 0;
   for (const inputId of inputIds) {
     const inputState = ctx.blockStates.get(inputId);
     if (inputState) {
-      inputValue += inputState.value;
+      // Apply edge flow percentage
+      const flowPercent = getEdgeFlowPercent(edges, inputId, block.id);
+      const flowMultiplier = flowPercent / 100;
+
+      inputValue += inputState.value * flowMultiplier;
       inputApy = inputState.apy;
       inputLeverage = inputState.leverage;
+      inputAsset = inputState.asset;
+      inputAmount += inputState.outputAmount * flowMultiplier;
     }
   }
 
-  // Apply slippage
-  const outputValue = inputValue * (1 - data.slippage / 100);
-  ctx.protocolFees += inputValue * 0.003; // 0.3% swap fee
+  const gasCost = GAS_COSTS.swap;
+  const outputValue = inputValue * (1 - data.slippage / 100) - gasCost;
+  ctx.protocolFees += inputValue * 0.003;
+  ctx.totalGasCost += gasCost;
 
-  // Add gas cost
-  ctx.totalGasCost += GAS_COSTS.swap;
+  // Calculate output amount in the target asset
+  const outputAmount = data.toAsset === "ETH" ? outputValue / ETH_PRICE : outputValue;
 
   return {
     value: outputValue,
@@ -404,6 +481,38 @@ function processSwapBlock(
     isCollateral: false,
     healthFactor: null,
     liquidationPrice: null,
+    // Value propagation
+    inputAsset,
+    inputAmount,
+    inputValueUsd: inputValue,
+    outputAmount,
+    gasCostUsd: gasCost,
+  };
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+function createErrorResult(message: string): SimulationResult {
+  return {
+    isValid: false,
+    errorMessage: message,
+    grossApy: 0,
+    netApy: 0,
+    initialValue: 0,
+    projectedValue1Y: 0,
+    projectedYield1Y: 0,
+    gasCostUsd: 0,
+    protocolFees: 0,
+    riskLevel: "low",
+    riskScore: 0,
+    liquidationPrice: null,
+    healthFactor: null,
+    maxDrawdown: 0,
+    leverage: 1,
+    yieldSources: [],
+    blockValues: {},
   };
 }
 
@@ -413,6 +522,7 @@ function processSwapBlock(
 
 /**
  * Run simulation on a strategy
+ * Processes blocks in topological order to simulate flow
  */
 export function simulateStrategy(
   blocks: StrategyBlock[],
@@ -420,54 +530,23 @@ export function simulateStrategy(
 ): SimulationResult {
   // Validate strategy
   if (blocks.length === 0) {
-    return {
-      isValid: false,
-      errorMessage: "Strategy has no blocks",
-      grossApy: 0,
-      netApy: 0,
-      initialValue: 0,
-      projectedValue1Y: 0,
-      projectedYield1Y: 0,
-      gasCostUsd: 0,
-      protocolFees: 0,
-      riskLevel: "low",
-      riskScore: 0,
-      liquidationPrice: null,
-      healthFactor: null,
-      maxDrawdown: 0,
-      leverage: 1,
-      yieldSources: [],
-    };
+    return createErrorResult("Strategy has no blocks");
   }
 
-  // Check for input block
   const hasInput = blocks.some((b) => b.type === "input");
   if (!hasInput) {
-    return {
-      isValid: false,
-      errorMessage: "Strategy needs an Input block",
-      grossApy: 0,
-      netApy: 0,
-      initialValue: 0,
-      projectedValue1Y: 0,
-      projectedYield1Y: 0,
-      gasCostUsd: 0,
-      protocolFees: 0,
-      riskLevel: "low",
-      riskScore: 0,
-      liquidationPrice: null,
-      healthFactor: null,
-      maxDrawdown: 0,
-      leverage: 1,
-      yieldSources: [],
-    };
+    return createErrorResult("Strategy needs an Input block");
   }
 
+  // Check for cycles (not supported - duplicate blocks manually for leverage)
+  if (hasCycle(blocks, edges)) {
+    return createErrorResult("Strategy contains a cycle. For leverage loops, duplicate blocks instead of connecting back.");
+  }
+
+  // Process blocks in topological order
   try {
-    // Sort blocks topologically
     const sortedBlocks = topologicalSort(blocks, edges);
 
-    // Initialize simulation context
     const ctx: SimulationContext = {
       initialValue: 0,
       blockStates: new Map(),
@@ -480,13 +559,12 @@ export function simulateStrategy(
       liquidationPrice: null,
     };
 
-    // Process each block in order
     for (const block of sortedBlocks) {
       let state: BlockState;
 
       switch (block.type) {
         case "input":
-          state = processInputBlock(block, ctx, edges);
+          state = processInputBlock(block, ctx);
           break;
         case "stake":
           state = processStakeBlock(block, ctx, edges);
@@ -509,6 +587,11 @@ export function simulateStrategy(
             isCollateral: false,
             healthFactor: null,
             liquidationPrice: null,
+            inputAsset: null,
+            inputAmount: 0,
+            inputValueUsd: 0,
+            outputAmount: 0,
+            gasCostUsd: 0,
           };
       }
 
@@ -518,7 +601,7 @@ export function simulateStrategy(
     // Calculate total APY
     const grossApy = ctx.yieldSources.reduce((sum, s) => sum + s.apy * (s.weight / 100), 0);
 
-    // Calculate net APY (after gas amortized over 1 year)
+    // Net APY after costs
     const gasCostAsPercent = ctx.initialValue > 0
       ? (ctx.totalGasCost / ctx.initialValue) * 100
       : 0;
@@ -527,20 +610,34 @@ export function simulateStrategy(
       : 0;
     const netApy = grossApy - gasCostAsPercent - feesAsPercent;
 
-    // Calculate projections
+    // Projections
     const projectedValue1Y = ctx.initialValue * (1 + netApy / 100);
     const projectedYield1Y = projectedValue1Y - ctx.initialValue;
 
-    // Determine risk level
+    // Risk level
     let riskLevel: RiskLevel = "low";
     if (ctx.riskScore >= 70 || ctx.leverage >= 4) riskLevel = "extreme";
     else if (ctx.riskScore >= 50 || ctx.leverage >= 3) riskLevel = "high";
     else if (ctx.riskScore >= 30 || ctx.leverage >= 2) riskLevel = "medium";
 
-    // Calculate max drawdown (simplified)
     const maxDrawdown = ctx.leverage > 1
       ? Math.min(100, 20 * ctx.leverage)
       : 10;
+
+    // Convert blockStates to blockValues for UI display
+    const blockValues: Record<string, ComputedBlockValue> = {};
+    for (const [blockId, state] of ctx.blockStates) {
+      blockValues[blockId] = {
+        inputAsset: state.inputAsset as AssetType | null,
+        inputAmount: state.inputAmount,
+        inputValueUsd: state.inputValueUsd,
+        outputAsset: state.asset as AssetType,
+        outputAmount: state.outputAmount,
+        outputValueUsd: state.value,
+        gasCostUsd: state.gasCostUsd,
+        apy: state.apy,
+      };
+    }
 
     return {
       isValid: true,
@@ -548,7 +645,7 @@ export function simulateStrategy(
       netApy,
       initialValue: ctx.initialValue,
       projectedValue1Y,
-      projectedYield1Y: projectedYield1Y / ctx.initialValue,
+      projectedYield1Y: ctx.initialValue > 0 ? projectedYield1Y / ctx.initialValue : 0,
       gasCostUsd: ctx.totalGasCost,
       protocolFees: ctx.protocolFees,
       riskLevel,
@@ -558,25 +655,9 @@ export function simulateStrategy(
       maxDrawdown,
       leverage: ctx.leverage,
       yieldSources: ctx.yieldSources,
+      blockValues,
     };
   } catch (error) {
-    return {
-      isValid: false,
-      errorMessage: error instanceof Error ? error.message : "Simulation failed",
-      grossApy: 0,
-      netApy: 0,
-      initialValue: 0,
-      projectedValue1Y: 0,
-      projectedYield1Y: 0,
-      gasCostUsd: 0,
-      protocolFees: 0,
-      riskLevel: "low",
-      riskScore: 0,
-      liquidationPrice: null,
-      healthFactor: null,
-      maxDrawdown: 0,
-      leverage: 1,
-      yieldSources: [],
-    };
+    return createErrorResult(error instanceof Error ? error.message : "Simulation failed");
   }
 }

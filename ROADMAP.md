@@ -6,24 +6,55 @@ This document consolidates all planned features, prioritized for maximum impact 
 
 ## Recently Completed
 
+### DeFi Strategy Builder (January 2025)
+**Status**: DONE
+
+Built a visual drag-and-drop strategy builder for composing DeFi strategies:
+- [x] Visual drag-and-drop canvas using React Flow
+- [x] Loop detection for leverage strategies (recursive cycle detection)
+- [x] Flow allocation with auto-balancing across sibling edges
+- [x] Animated edge particles flowing along connections
+- [x] Block entrance animations (Framer Motion spring animations)
+- [x] Connection celebration effects (particle burst on new connections)
+- [x] Loop badge with iteration controls
+
+**Block Types Implemented:**
+- Input block (ETH/asset entry point)
+- Stake block (EtherFi, Lido protocols)
+- Lend block (Aave, Compound, Morpho protocols)
+- Borrow block (Aave, Compound, Morpho protocols)
+- Swap block (1inch, Uniswap protocols)
+
+**Location:** `src/components/strategy-builder/`
+
+### EtherFi Dashboard Integration (January 2025)
+**Status**: DONE
+
+Full EtherFi protocol integration in the portfolio dashboard:
+- [x] EtherFi position detection (weETH, eETH)
+- [x] Graph-accelerated EtherFi adapter
+- [x] weETH/eETH balance tracking across chains
+
 ### The Graph Integration (January 2025)
 **Status**: DONE
 
 Implemented Graph-accelerated adapters for major protocols, achieving ~25x faster position queries:
-- Aave V3 Graph adapter
-- Compound V3 Graph adapter
-- Lido Graph adapter
-- EtherFi Graph adapter
+- [x] Aave V3 Graph adapter
+- [x] Compound V3 Graph adapter
+- [x] Lido Graph adapter
+- [x] EtherFi Graph adapter
 
 DeFi position loading reduced from ~38s to ~1-2s through subgraph queries.
+
+**Location:** `src/server/adapters/graph/adapters/`
 
 ### HyperSync Historical Data (January 2025)
 **Status**: DONE
 
 Integrated Envio HyperSync for backward balance reconstruction:
-- Block time estimation for historical queries
-- Fast ERC-20 transfer log retrieval
-- Backward balance calculation from current state
+- [x] Block time estimation for historical queries
+- [x] Fast ERC-20 transfer log retrieval
+- [x] Backward balance calculation from current state
 
 ### Live Price Animation Fix (January 2025)
 **Status**: DONE
@@ -34,9 +65,58 @@ Fixed price ticker animation re-triggering issue in the dashboard.
 **Status**: DONE
 
 Major performance improvements across the application:
-- DeFi position loading: 38s → 1-2s
-- Graph-accelerated protocol adapters
-- Optimized data fetching patterns
+- [x] DeFi position loading: 38s → 1-2s
+- [x] Graph-accelerated protocol adapters
+- [x] Optimized data fetching patterns
+
+---
+
+## In Progress / Next Up
+
+### Strategy Persistence (Save/Load Strategies)
+**Status**: IN PROGRESS
+
+Enable users to save and load their DeFi strategies:
+- [ ] LocalStorage persistence for strategies
+- [ ] Strategy naming and metadata
+- [ ] Strategy list/gallery view
+- [ ] Load strategy into canvas
+
+**Priority**: High - Essential for strategy builder usability
+
+### Strategy Sharing (Export/Import)
+**Status**: NEXT UP
+
+Enable sharing strategies with others:
+- [ ] Export strategy as JSON file
+- [ ] Export strategy as shareable URL
+- [ ] Import strategy from JSON/URL
+- [ ] Strategy preview before import
+
+**Priority**: Medium - Community engagement feature
+
+### Transaction Execution (On-Chain)
+**Status**: NEXT UP
+
+Execute strategies on-chain after building and simulating:
+- [ ] Transaction builder from strategy graph
+- [ ] Multi-step transaction batching
+- [ ] Gas estimation and optimization
+- [ ] Transaction simulation before execution
+- [ ] Wallet integration for signing
+
+**Priority**: High - Core value proposition
+
+### Additional Block Types
+**Status**: NEXT UP
+
+Expand strategy builder with more DeFi primitives:
+- [ ] LP Position block (Uniswap, Curve liquidity)
+- [ ] Yield Farming block (farm rewards)
+- [ ] Bridge block (cross-chain transfers)
+- [ ] Output/Harvest block (collect yields)
+
+**Priority**: Medium - Expands strategy possibilities
 
 ---
 
@@ -512,33 +592,50 @@ src/components/
    - Graph-accelerated adapters for major protocols
    - DeFi position loading: 38s → 1-2s
 
-2. **Live Price Streaming** (P1) - IN PROGRESS
+2. ~~**DeFi Strategy Builder**~~ DONE
+   - Visual drag-and-drop canvas
+   - Loop detection for leverage strategies
+   - Animated edges and connection celebrations
+
+3. ~~**EtherFi Dashboard Integration**~~ DONE
+   - weETH/eETH position tracking
+   - Graph-accelerated EtherFi adapter
+
+4. **Strategy Persistence** - IN PROGRESS
+   - Save/load strategies to localStorage
+   - Strategy gallery and management
+
+5. **Strategy Sharing** - NEXT UP
+   - Export/import strategies
+   - Shareable URLs
+
+6. **Transaction Execution** - NEXT UP
+   - Execute strategies on-chain
+   - Transaction batching and simulation
+
+7. **Live Price Streaming** (P1)
    - Animation fixed, backend broadcasting next
    - Infrastructure mostly exists
 
-3. **EtherFi Points Tracker** (P0) - NEXT PRIORITY
+8. **EtherFi Points Tracker** (P0)
    - High EtherFi relevance
    - Can start with estimation if API unavailable
 
-4. **Restaking Flow Visualization** (P0)
+9. **Restaking Flow Visualization** (P0)
    - Visual impact, shows product understanding
    - Mostly frontend work
 
-5. **Liquidation Risk Dashboard** (P2)
-   - Demonstrates DeFi expertise
-   - Backend complexity but high value
+10. **Liquidation Risk Dashboard** (P2)
+    - Demonstrates DeFi expertise
+    - Backend complexity but high value
 
-6. **Transaction Simulation** (P2)
-   - Requires Tenderly setup
-   - Critical for trust in any "actions" features
+11. **Additional Block Types**
+    - LP Positions, Yield Farming, Bridge blocks
+    - Expand strategy possibilities
 
-7. **weETH DeFi Map** (P0)
-   - Builds on existing adapters
-   - EtherFi-specific insight
-
-8. **Unified Actions** (P3)
-   - Full product vision
-   - Depends on simulation being ready
+12. **Unified Actions** (P3)
+    - Full product vision
+    - Depends on simulation being ready
 
 ---
 
@@ -546,18 +643,23 @@ src/components/
 
 | Feature | Metric | Status |
 |---------|--------|--------|
-| Live Prices | Updates visible within 10s of price change | In Progress |
+| Strategy Builder | Drag-and-drop with loop detection | ACHIEVED |
+| Graph Adapters | Position loading < 2s | ACHIEVED |
+| Load Time | Dashboard < 3s, historical chart < 5s | ACHIEVED (1-2s) |
+| Strategy Persistence | Save/load with localStorage | In Progress |
+| Live Prices | Updates visible within 10s of price change | Planned |
 | Points Tracker | Earning rate within 10% of actual | Planned |
 | Liquidation Monitor | Health factor accurate to 2 decimal places | Planned |
 | Transaction Simulation | 99%+ accuracy vs actual execution | Planned |
-| Load Time | Dashboard < 3s, historical chart < 5s | ACHIEVED (1-2s) |
+| On-Chain Execution | Execute strategies via wallet | Planned |
 
 ---
 
-*Document Version: 1.1*
+*Document Version: 1.2*
 *Created: January 21, 2025*
-*Last Updated: January 23, 2025*
+*Last Updated: January 26, 2025*
 *Consolidates: PHASE_2_3_PLAN.md + new EtherFi-specific recommendations*
 
 ### Changelog
+- **v1.2** (Jan 26, 2025): Marked Strategy Builder as COMPLETED (visual drag-and-drop, loop detection, animated edges, connection celebrations, block animations). Added EtherFi Dashboard Integration and The Graph Integration to completed. Added "In Progress / Next Up" section with strategy persistence, sharing, transaction execution, and additional block types. Updated implementation order and success criteria.
 - **v1.1** (Jan 23, 2025): Added "Recently Completed" section documenting The Graph integration, HyperSync historical data, live price animation fix, and performance optimizations. Updated success criteria and external dependencies.

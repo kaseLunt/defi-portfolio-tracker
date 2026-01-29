@@ -20,9 +20,9 @@ import type {
   BorrowBlockData,
   SwapBlockData,
   LoopBlockData,
-  DetectedLoop,
+  SavedSystem,
 } from "./types";
-import { detectLoops } from "./loop-detection";
+import { loadTemplate as loadTemplateFromLib } from "./templates";
 import {
   applyNodeChanges,
   applyEdgeChanges,
@@ -34,6 +34,96 @@ import { getDefaultApy } from "./protocols";
 import type { StrategyApyData } from "@/server/services/yields";
 
 // ============================================================================
+// Smart Connection Helpers
+// ============================================================================
+
+/**
+ * Get the output asset of a block based on its type and configuration
+ */
+function getBlockOutputAsset(block: StrategyBlock): AssetType | null {
+  switch (block.type) {
+    case "input":
+      return (block.data as InputBlockData).asset;
+    case "stake":
+      return (block.data as StakeBlockData).outputAsset;
+    case "lend":
+      // Lend outputs the same asset it receives (it's collateralized)
+      return null; // Will be determined by upstream
+    case "borrow":
+      return (block.data as BorrowBlockData).asset;
+    case "swap":
+      return (block.data as SwapBlockData).toAsset;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Auto-configure a block based on incoming asset from connected source
+ */
+function autoConfigureBlockData(
+  targetBlock: StrategyBlock,
+  incomingAsset: AssetType
+): Partial<BlockData> | null {
+  switch (targetBlock.type) {
+    case "stake": {
+      // Stake blocks accept ETH and output LSTs
+      if (incomingAsset === "ETH") {
+        return {
+          inputAsset: "ETH",
+          outputAsset: "eETH" as AssetType,
+          protocol: "etherfi",
+          apy: getDefaultApy("etherfi"),
+          isConfigured: true,
+          isValid: true,
+        };
+      }
+      return null;
+    }
+    case "lend": {
+      // Lend blocks accept various assets
+      const validLendAssets: AssetType[] = ["ETH", "eETH", "weETH", "stETH", "wstETH", "USDC", "DAI"];
+      if (validLendAssets.includes(incomingAsset)) {
+        return {
+          isConfigured: true,
+          isValid: true,
+        };
+      }
+      return null;
+    }
+    case "borrow": {
+      // Borrow doesn't need auto-config based on input
+      // It borrows from the collateral provided
+      return {
+        isConfigured: true,
+        isValid: true,
+      };
+    }
+    case "swap": {
+      // Set the fromAsset to match incoming
+      return {
+        fromAsset: incomingAsset,
+        isConfigured: true,
+        isValid: true,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+// ============================================================================
+// History Types
+// ============================================================================
+
+interface HistoryEntry {
+  blocks: StrategyBlock[];
+  edges: StrategyEdge[];
+}
+
+const MAX_HISTORY_SIZE = 30;
+
+// ============================================================================
 // Store State
 // ============================================================================
 
@@ -41,6 +131,10 @@ interface StrategyState {
   // Canvas state
   blocks: StrategyBlock[];
   edges: StrategyEdge[];
+
+  // History (for undo/redo)
+  history: HistoryEntry[];
+  historyIndex: number; // -1 means no history, points to current state in history
 
   // Selection
   selectedBlockId: string | null;
@@ -57,8 +151,8 @@ interface StrategyState {
   isSidebarOpen: boolean;
   isResultsPanelOpen: boolean;
 
-  // Loops
-  detectedLoops: DetectedLoop[];
+  // Saved Systems (user-created reusable loops)
+  savedSystems: SavedSystem[];
 
   // Actions - Canvas
   addBlock: (type: BlockType, position: { x: number; y: number }) => void;
@@ -92,9 +186,19 @@ interface StrategyState {
   // Actions - Strategy
   clearStrategy: () => void;
   loadStrategy: (blocks: StrategyBlock[], edges: StrategyEdge[]) => void;
+  loadTemplate: (templateId: string) => boolean;
 
-  // Actions - Loops
-  updateLoopIterations: (loopId: string, iterations: number) => void;
+  // Actions - History (Undo/Redo)
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+
+  // Actions - Saved Systems
+  saveSystem: (name: string, description: string, blockIds: string[]) => void;
+  deleteSystem: (id: string) => void;
+  placeSystem: (systemId: string, position: { x: number; y: number }) => void;
+  loadSavedSystems: () => void;
 }
 
 // ============================================================================
@@ -190,12 +294,22 @@ function createDefaultBlockData(type: BlockType): BlockData {
 // Store
 // ============================================================================
 
+// Helper to deep clone state for history
+function cloneState(blocks: StrategyBlock[], edges: StrategyEdge[]): HistoryEntry {
+  return {
+    blocks: JSON.parse(JSON.stringify(blocks)),
+    edges: JSON.parse(JSON.stringify(edges)),
+  };
+}
+
 export const useStrategyStore = create<StrategyState>()(
   devtools(
     (set, get) => ({
       // Initial state
       blocks: [],
       edges: [],
+      history: [],
+      historyIndex: -1,
       selectedBlockId: null,
       simulationResult: null,
       isSimulating: false,
@@ -203,43 +317,67 @@ export const useStrategyStore = create<StrategyState>()(
       yieldsLoading: false,
       isSidebarOpen: true,
       isResultsPanelOpen: true,
-      detectedLoops: [],
+      savedSystems: [],
 
       // Actions - Canvas
       addBlock: (type, position) => {
+        const { blocks, edges, history } = get();
+
+        // Push current state to history before change
+        const historyEntry = cloneState(blocks, edges);
+        const newHistory = [...history.slice(0, get().historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
         const id = generateBlockId();
         const newBlock: StrategyBlock = {
           id,
           type,
           position,
+          selectable: true,
           data: createDefaultBlockData(type),
         };
 
-        set((state) => ({
-          blocks: [...state.blocks, newBlock],
+        set({
+          blocks: [...blocks, newBlock],
           selectedBlockId: id,
-        }));
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
+        });
       },
 
       updateBlock: (id, data) => {
-        set((state) => ({
-          blocks: state.blocks.map((block) =>
+        const { blocks, edges, history, historyIndex } = get();
+
+        // Push current state to history before change
+        const historyEntry = cloneState(blocks, edges);
+        const newHistory = [...history.slice(0, historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
+        set({
+          blocks: blocks.map((block) =>
             block.id === id
               ? { ...block, data: { ...block.data, ...data } as BlockData }
               : block
           ),
-        }));
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
+        });
       },
 
       removeBlock: (id) => {
-        set((state) => ({
-          blocks: state.blocks.filter((block) => block.id !== id),
-          edges: state.edges.filter(
+        const { blocks, edges, history, historyIndex, selectedBlockId } = get();
+
+        // Push current state to history before change
+        const historyEntry = cloneState(blocks, edges);
+        const newHistory = [...history.slice(0, historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
+        set({
+          blocks: blocks.filter((block) => block.id !== id),
+          edges: edges.filter(
             (edge) => edge.source !== id && edge.target !== id
           ),
-          selectedBlockId:
-            state.selectedBlockId === id ? null : state.selectedBlockId,
-        }));
+          selectedBlockId: selectedBlockId === id ? null : selectedBlockId,
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
+        });
       },
 
       onNodesChange: (changes) => {
@@ -253,66 +391,94 @@ export const useStrategyStore = create<StrategyState>()(
         const { source, target, sourceHandle, targetHandle } = connection;
         if (!source || !target) return;
 
+        const { blocks, edges, history, historyIndex } = get();
+
+        // Check if edge already exists
+        if (edges.some((e) => e.source === source && e.target === target)) {
+          return;
+        }
+
+        // Push current state to history before change
+        const historyEntry = cloneState(blocks, edges);
+        const newHistory = [...history.slice(0, historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
         const id = `edge_${source}_${target}`;
 
-        set((state) => {
-          // Check if edge already exists
-          if (state.edges.some((e) => e.source === source && e.target === target)) {
-            return state;
+        // Find existing edges from same source
+        const existingFromSource = edges.filter((e) => e.source === source);
+        const totalEdgesFromSource = existingFromSource.length + 1;
+
+        // Calculate equal distribution
+        const equalPercent = Math.round((100 / totalEdgesFromSource) * 10) / 10;
+
+        // Create new edge with equal share
+        const newEdge: StrategyEdge = {
+          id,
+          source,
+          target,
+          sourceHandle: sourceHandle ?? undefined,
+          targetHandle: targetHandle ?? undefined,
+          type: "flow",
+          animated: true,
+          data: { flowPercent: equalPercent },
+        };
+
+        // Update existing edges to redistribute
+        const updatedEdges = edges.map((edge) => {
+          if (edge.source === source) {
+            return {
+              ...edge,
+              data: { ...edge.data, flowPercent: equalPercent },
+            };
           }
+          return edge;
+        });
 
-          // Find existing edges from same source
-          const existingFromSource = state.edges.filter((e) => e.source === source);
-          const totalEdgesFromSource = existingFromSource.length + 1;
+        // Smart connection: auto-configure target block based on source output
+        const sourceBlock = blocks.find((b) => b.id === source);
+        const targetBlock = blocks.find((b) => b.id === target);
+        let updatedBlocks = blocks;
 
-          // Calculate equal distribution
-          const equalPercent = Math.round((100 / totalEdgesFromSource) * 10) / 10;
-
-          // Create new edge with equal share
-          const newEdge: StrategyEdge = {
-            id,
-            source,
-            target,
-            sourceHandle: sourceHandle ?? undefined,
-            targetHandle: targetHandle ?? undefined,
-            type: "flow",
-            animated: true,
-            data: { flowPercent: equalPercent },
-          };
-
-          // Update existing edges to redistribute
-          const updatedEdges = state.edges.map((edge) => {
-            if (edge.source === source) {
-              return {
-                ...edge,
-                data: { ...edge.data, flowPercent: equalPercent },
-              };
+        if (sourceBlock && targetBlock) {
+          const outputAsset = getBlockOutputAsset(sourceBlock);
+          if (outputAsset) {
+            const autoConfig = autoConfigureBlockData(targetBlock, outputAsset);
+            if (autoConfig) {
+              updatedBlocks = blocks.map((block) =>
+                block.id === target
+                  ? { ...block, data: { ...block.data, ...autoConfig } as BlockData }
+                  : block
+              );
             }
-            return edge;
-          });
+          }
+        }
 
-          const newEdges = [...updatedEdges, newEdge];
-          // Detect loops after adding edge
-          const loops = detectLoops(state.blocks, newEdges);
-          return { edges: newEdges, detectedLoops: loops };
+        set({
+          blocks: updatedBlocks,
+          edges: [...updatedEdges, newEdge],
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
         });
       },
 
       removeEdge: (id) => {
-        set((state) => {
-          const newEdges = state.edges.filter((edge) => edge.id !== id);
-          // Re-detect loops after removing edge
-          const loops = detectLoops(state.blocks, newEdges);
-          return { edges: newEdges, detectedLoops: loops };
+        const { blocks, edges, history, historyIndex } = get();
+
+        // Push current state to history before change
+        const historyEntry = cloneState(blocks, edges);
+        const newHistory = [...history.slice(0, historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
+        set({
+          edges: edges.filter((edge) => edge.id !== id),
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
         });
       },
 
       onEdgesChange: (changes) => {
         set((state) => {
           const newEdges = applyEdgeChanges(changes, state.edges);
-          // Re-detect loops on any edge change
-          const loops = detectLoops(state.blocks, newEdges);
-          return { edges: newEdges, detectedLoops: loops };
+          return { edges: newEdges };
         });
       },
 
@@ -385,33 +551,261 @@ export const useStrategyStore = create<StrategyState>()(
 
       // Actions - Strategy
       clearStrategy: () => {
-        set({
-          blocks: [],
-          edges: [],
-          selectedBlockId: null,
-          simulationResult: null,
-          detectedLoops: [],
-        });
+        const { blocks, edges, history, historyIndex } = get();
+
+        // Only push history if there's something to clear
+        if (blocks.length > 0 || edges.length > 0) {
+          const historyEntry = cloneState(blocks, edges);
+          const newHistory = [...history.slice(0, historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
+          set({
+            blocks: [],
+            edges: [],
+            selectedBlockId: null,
+            simulationResult: null,
+            history: newHistory,
+            historyIndex: newHistory.length - 1,
+          });
+        } else {
+          set({
+            blocks: [],
+            edges: [],
+            selectedBlockId: null,
+            simulationResult: null,
+          });
+        }
       },
 
       loadStrategy: (blocks, edges) => {
-        const loops = detectLoops(blocks, edges);
+        const state = get();
+
+        // Push current state to history if there's content
+        if (state.blocks.length > 0 || state.edges.length > 0) {
+          const historyEntry = cloneState(state.blocks, state.edges);
+          const newHistory = [...state.history.slice(0, state.historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
+          set({
+            blocks,
+            edges,
+            selectedBlockId: null,
+            simulationResult: null,
+            history: newHistory,
+            historyIndex: newHistory.length - 1,
+          });
+        } else {
+          set({
+            blocks,
+            edges,
+            selectedBlockId: null,
+            simulationResult: null,
+          });
+        }
+      },
+
+      loadTemplate: (templateId) => {
+        const template = loadTemplateFromLib(templateId);
+        if (!template) return false;
+
+        const state = get();
+
+        // Push current state to history if there's content
+        if (state.blocks.length > 0 || state.edges.length > 0) {
+          const historyEntry = cloneState(state.blocks, state.edges);
+          const newHistory = [...state.history.slice(0, state.historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
+          set({
+            blocks: template.blocks,
+            edges: template.edges,
+            selectedBlockId: null,
+            simulationResult: null,
+            history: newHistory,
+            historyIndex: newHistory.length - 1,
+          });
+        } else {
+          set({
+            blocks: template.blocks,
+            edges: template.edges,
+            selectedBlockId: null,
+            simulationResult: null,
+          });
+        }
+        return true;
+      },
+
+      // Actions - History (Undo/Redo)
+      undo: () => {
+        const { history, historyIndex, blocks, edges } = get();
+        if (historyIndex < 0) return;
+
+        // If we're at the end, save current state first so we can redo to it
+        if (historyIndex === history.length - 1) {
+          const currentState = cloneState(blocks, edges);
+          set({
+            history: [...history, currentState],
+          });
+        }
+
+        const prevState = history[historyIndex];
         set({
-          blocks,
-          edges,
-          selectedBlockId: null,
+          blocks: JSON.parse(JSON.stringify(prevState.blocks)),
+          edges: JSON.parse(JSON.stringify(prevState.edges)),
+          historyIndex: historyIndex - 1,
           simulationResult: null,
-          detectedLoops: loops,
         });
       },
 
-      // Actions - Loops
-      updateLoopIterations: (loopId, iterations) => {
-        set((state) => ({
-          detectedLoops: state.detectedLoops.map((loop) =>
-            loop.id === loopId ? { ...loop, iterations } : loop
-          ),
+      redo: () => {
+        const { history, historyIndex } = get();
+        if (historyIndex >= history.length - 1) return;
+
+        const nextIndex = historyIndex + 1;
+        const nextState = history[nextIndex];
+
+        // If redoing to the last state (current), move index past it
+        const newIndex = nextIndex === history.length - 1 ? nextIndex : nextIndex;
+
+        set({
+          blocks: JSON.parse(JSON.stringify(nextState.blocks)),
+          edges: JSON.parse(JSON.stringify(nextState.edges)),
+          historyIndex: newIndex,
+          simulationResult: null,
+        });
+      },
+
+      canUndo: () => {
+        const { historyIndex } = get();
+        return historyIndex >= 0;
+      },
+
+      canRedo: () => {
+        const { history, historyIndex } = get();
+        return historyIndex < history.length - 1;
+      },
+
+      // Actions - Saved Systems
+      saveSystem: (name, description, blockIds) => {
+        const { blocks, edges, savedSystems } = get();
+
+        // Get selected blocks
+        const selectedBlocks = blocks.filter((b) => blockIds.includes(b.id));
+        if (selectedBlocks.length === 0) return;
+
+        // Get edges that connect selected blocks
+        const selectedEdges = edges.filter(
+          (e) => blockIds.includes(e.source) && blockIds.includes(e.target)
+        );
+
+        // Calculate relative positions (relative to first block)
+        const firstBlock = selectedBlocks[0];
+        const relativeBlocks = selectedBlocks.map((block) => ({
+          ...block,
+          position: {
+            x: block.position.x - firstBlock.position.x,
+            y: block.position.y - firstBlock.position.y,
+          },
         }));
+
+        const newSystem: SavedSystem = {
+          id: `system_${Date.now()}`,
+          name,
+          description: description || undefined,
+          blocks: relativeBlocks,
+          edges: selectedEdges,
+          blockCount: selectedBlocks.length,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        const updatedSystems = [...savedSystems, newSystem];
+
+        // Persist to localStorage
+        try {
+          localStorage.setItem(
+            "strategy-builder-saved-systems",
+            JSON.stringify(updatedSystems)
+          );
+        } catch (e) {
+          console.error("Failed to save systems to localStorage:", e);
+        }
+
+        set({ savedSystems: updatedSystems });
+      },
+
+      deleteSystem: (id) => {
+        const { savedSystems } = get();
+        const updatedSystems = savedSystems.filter((s) => s.id !== id);
+
+        // Persist to localStorage
+        try {
+          localStorage.setItem(
+            "strategy-builder-saved-systems",
+            JSON.stringify(updatedSystems)
+          );
+        } catch (e) {
+          console.error("Failed to save systems to localStorage:", e);
+        }
+
+        set({ savedSystems: updatedSystems });
+      },
+
+      placeSystem: (systemId, position) => {
+        const { blocks, edges, savedSystems, history, historyIndex } = get();
+
+        const system = savedSystems.find((s) => s.id === systemId);
+        if (!system) return;
+
+        // Push current state to history
+        const historyEntry = cloneState(blocks, edges);
+        const newHistory = [...history.slice(0, historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
+        // Generate new IDs for blocks and edges
+        const idMap = new Map<string, string>();
+        const timestamp = Date.now();
+
+        system.blocks.forEach((block, index) => {
+          idMap.set(block.id, `placed_${timestamp}_${index}`);
+        });
+
+        // Create new blocks with new IDs and offset positions
+        const newBlocks: StrategyBlock[] = system.blocks.map((block, index) => ({
+          ...block,
+          id: idMap.get(block.id)!,
+          position: {
+            x: position.x + block.position.x,
+            y: position.y + block.position.y,
+          },
+          selected: true, // Select placed blocks
+        }));
+
+        // Create new edges with updated IDs
+        const newEdges: StrategyEdge[] = system.edges.map((edge, index) => ({
+          ...edge,
+          id: `placed_edge_${timestamp}_${index}`,
+          source: idMap.get(edge.source)!,
+          target: idMap.get(edge.target)!,
+        }));
+
+        // Deselect existing blocks
+        const updatedBlocks = blocks.map((b) => ({ ...b, selected: false }));
+
+        set({
+          blocks: [...updatedBlocks, ...newBlocks],
+          edges: [...edges, ...newEdges],
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
+        });
+      },
+
+      loadSavedSystems: () => {
+        try {
+          const stored = localStorage.getItem("strategy-builder-saved-systems");
+          if (stored) {
+            const systems = JSON.parse(stored) as SavedSystem[];
+            set({ savedSystems: systems });
+          }
+        } catch (e) {
+          console.error("Failed to load saved systems:", e);
+        }
       },
 
       // Actions - Yields
