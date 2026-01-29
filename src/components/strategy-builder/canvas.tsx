@@ -581,6 +581,8 @@ function CanvasInner() {
         fitView
         snapToGrid
         snapGrid={[16, 16]}
+        minZoom={0.2}
+        maxZoom={2}
         style={canvasStyles}
         // Box selection: hold Shift and drag to select multiple blocks
         selectionKeyCode="Shift"
@@ -605,10 +607,12 @@ function CanvasInner() {
         />
         <Controls
           className="!bg-[#12121a] !border-[#2a2a3a] !rounded-lg"
+          style={{ bottom: 100 }}
           showInteractive={false}
         />
         <MiniMap
           className="!bg-[#12121a] !border-[#2a2a3a] !rounded-lg"
+          style={{ bottom: 100 }}
           nodeColor={(node) => {
             switch (node.type) {
               case "input":

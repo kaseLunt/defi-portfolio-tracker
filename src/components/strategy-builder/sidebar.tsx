@@ -301,7 +301,7 @@ export function StrategySidebar() {
   return (
     <div
       className={cn(
-        "relative flex flex-col cyber-sidebar transition-all duration-300",
+        "relative h-full flex flex-col cyber-sidebar transition-all duration-300",
         isSidebarOpen ? "w-72" : "w-12"
       )}
     >

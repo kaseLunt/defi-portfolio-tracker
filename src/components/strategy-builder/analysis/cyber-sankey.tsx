@@ -140,6 +140,18 @@ interface HoloNodeProps {
 function HoloNode({ node, x, y, width, height, index }: HoloNodeProps) {
   const [isHovered, setIsHovered] = useState(false);
 
+  // Safeguard all numeric values
+  const safeX = typeof x === "number" && isFinite(x) ? x : 0;
+  const safeY = typeof y === "number" && isFinite(y) ? y : 0;
+  const safeWidth = typeof width === "number" && isFinite(width) ? width : 160;
+  const safeHeight = typeof height === "number" && isFinite(height) ? height : 70;
+  const nodeValue = typeof node?.value === "number" && isFinite(node.value) ? node.value : 0;
+  const nodeColor = node?.color || "#a855f7";
+  const nodeLabel = node?.label || "Node";
+
+  // Format display value safely
+  const displayValue = node?.displayValue || `${nodeValue >= 0 ? "+" : ""}${nodeValue.toFixed(2)}%`;
+
   return (
     <motion.g
       initial={{ opacity: 0, scale: 0.8 }}
@@ -151,18 +163,17 @@ function HoloNode({ node, x, y, width, height, index }: HoloNodeProps) {
     >
       {/* Outer glow pulse */}
       <motion.rect
-        x={x - 6}
-        y={y - 6}
-        width={width + 12}
-        height={height + 12}
+        x={safeX - 6}
+        y={safeY - 6}
+        width={safeWidth + 12}
+        height={safeHeight + 12}
         rx={16}
         fill="none"
-        stroke={node.glowColor || node.color}
+        stroke={node?.glowColor || nodeColor}
         strokeWidth={1.5}
         initial={{ opacity: 0.2 }}
         animate={{
           opacity: isHovered ? [0.4, 0.7, 0.4] : [0.1, 0.3, 0.1],
-          scale: isHovered ? [1, 1.02, 1] : 1,
         }}
         transition={{ duration: 2, repeat: Infinity }}
         filter="url(#node-glow)"
@@ -170,72 +181,56 @@ function HoloNode({ node, x, y, width, height, index }: HoloNodeProps) {
 
       {/* Glass background */}
       <rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
+        x={safeX}
+        y={safeY}
+        width={safeWidth}
+        height={safeHeight}
         rx={12}
         fill="url(#glass-gradient)"
-        stroke={node.color}
+        stroke={nodeColor}
         strokeWidth={2}
         filter="url(#glass-blur)"
       />
 
       {/* Inner gradient overlay */}
       <rect
-        x={x + 2}
-        y={y + 2}
-        width={width - 4}
-        height={height - 4}
+        x={safeX + 2}
+        y={safeY + 2}
+        width={safeWidth - 4}
+        height={safeHeight - 4}
         rx={10}
         fill={`url(#node-inner-${index})`}
         opacity={0.5}
       />
 
       {/* Holographic shimmer line */}
-      <motion.rect
-        x={x}
-        y={y}
-        width={width}
+      <rect
+        x={safeX}
+        y={safeY}
+        width={safeWidth}
         height={2}
         rx={1}
-        fill={node.color}
-        initial={{ opacity: 0.6 }}
-        animate={{ opacity: [0.4, 0.8, 0.4] }}
-        transition={{ duration: 1.5, repeat: Infinity }}
+        fill={nodeColor}
+        opacity={0.6}
       />
-
-      {/* Node icon background */}
-      {node.icon && (
-        <foreignObject x={x + 8} y={y + height / 2 - 14} width={28} height={28}>
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{
-              background: `linear-gradient(135deg, ${node.color}40, ${node.color}20)`,
-            }}
-          >
-            {node.icon}
-          </div>
-        </foreignObject>
-      )}
 
       {/* Label */}
       <text
-        x={x + (node.icon ? 44 : width / 2)}
-        y={y + 22}
-        textAnchor={node.icon ? "start" : "middle"}
+        x={safeX + safeWidth / 2}
+        y={safeY + 22}
+        textAnchor="middle"
         className="fill-white/80 text-xs font-medium"
         style={{ fontFamily: "var(--font-display), system-ui" }}
       >
-        {node.label}
+        {nodeLabel}
       </text>
 
       {/* Sublabel */}
-      {node.sublabel && (
+      {node?.sublabel && (
         <text
-          x={x + (node.icon ? 44 : width / 2)}
-          y={y + 38}
-          textAnchor={node.icon ? "start" : "middle"}
+          x={safeX + safeWidth / 2}
+          y={safeY + 38}
+          textAnchor="middle"
           className="fill-white/40 text-[10px]"
         >
           {node.sublabel}
@@ -244,33 +239,18 @@ function HoloNode({ node, x, y, width, height, index }: HoloNodeProps) {
 
       {/* Value */}
       <text
-        x={x + width / 2}
-        y={y + height - 14}
+        x={safeX + safeWidth / 2}
+        y={safeY + safeHeight - 14}
         textAnchor="middle"
         className="text-base font-bold"
         style={{
           fontFamily: "var(--font-mono), monospace",
-          fill: node.color,
-          filter: `drop-shadow(0 0 8px ${node.color})`,
+          fill: nodeColor,
+          filter: `drop-shadow(0 0 8px ${nodeColor})`,
         }}
       >
-        {node.displayValue || `${node.value >= 0 ? "+" : ""}${node.value.toFixed(2)}%`}
+        {displayValue}
       </text>
-
-      {/* Scan line effect */}
-      <motion.rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        rx={12}
-        fill="url(#scan-gradient)"
-        initial={{ y: y }}
-        animate={{ y: [y, y + height, y] }}
-        transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-        style={{ mixBlendMode: "overlay" }}
-        opacity={0.3}
-      />
     </motion.g>
   );
 }
@@ -408,43 +388,63 @@ function CyberSankeyComponent({
   enableGlow = true,
   animated = true,
 }: CyberSankeyProps) {
+  // Validate inputs
+  const safeWidth = typeof width === "number" && isFinite(width) && width > 0 ? width : 800;
+  const safeHeight = typeof height === "number" && isFinite(height) && height > 0 ? height : 400;
+  const safeNodes = Array.isArray(nodes) ? nodes : [];
+  const safeLinks = Array.isArray(links) ? links : [];
+
   // Calculate node positions by column FIRST
   const nodePositions = useMemo(() => {
     const positions: Record<string, { x: number; y: number; width: number; height: number }> = {};
 
+    if (safeNodes.length === 0) return positions;
+
     const nodeWidth = 160;
     const nodeHeight = 70;
     const padding = 40;
-    const columnGap = (width - 2 * padding - nodeWidth) / 2;
+    const columnGap = (safeWidth - 2 * padding - nodeWidth) / 2;
 
     // Group nodes by column
     const columns: FlowNode[][] = [[], [], []];
-    nodes.forEach((node) => {
-      columns[node.column].push(node);
+    safeNodes.forEach((node) => {
+      if (node && typeof node.column === "number" && node.column >= 0 && node.column <= 2) {
+        columns[node.column].push(node);
+      }
     });
 
     // Position each column
     columns.forEach((columnNodes, colIndex) => {
+      if (columnNodes.length === 0) return;
+
       const colX = padding + colIndex * columnGap;
       const totalHeight = columnNodes.length * nodeHeight + (columnNodes.length - 1) * 20;
-      const startY = (height - totalHeight) / 2;
+      const startY = Math.max(padding, (safeHeight - totalHeight) / 2);
 
       columnNodes.forEach((node, nodeIndex) => {
-        positions[node.id] = {
-          x: colX,
-          y: startY + nodeIndex * (nodeHeight + 20),
-          width: nodeWidth,
-          height: nodeHeight,
-        };
+        if (node && node.id) {
+          positions[node.id] = {
+            x: colX,
+            y: startY + nodeIndex * (nodeHeight + 20),
+            width: nodeWidth,
+            height: nodeHeight,
+          };
+        }
       });
     });
 
     return positions;
-  }, [nodes, width, height]);
+  }, [safeNodes, safeWidth, safeHeight]);
 
   // Calculate link paths
   const linkPaths = useMemo(() => {
-    return links.map((link, index) => {
+    if (safeLinks.length === 0 || Object.keys(nodePositions).length === 0) {
+      return [];
+    }
+
+    return safeLinks.map((link) => {
+      if (!link || !link.source || !link.target) return null;
+
       const source = nodePositions[link.source];
       const target = nodePositions[link.target];
 
@@ -458,6 +458,11 @@ function CyberSankeyComponent({
       const toX = target.x;
       const toY = target.y + target.height / 2;
 
+      // Validate coordinates
+      if (!isFinite(fromX) || !isFinite(fromY) || !isFinite(toX) || !isFinite(toY)) {
+        return null;
+      }
+
       const controlOffset = Math.abs(toX - fromX) * 0.4;
 
       const path = `M ${fromX} ${fromY}
@@ -465,7 +470,7 @@ function CyberSankeyComponent({
                       ${toX - controlOffset} ${toY},
                       ${toX} ${toY}`;
 
-      const sourceNode = nodes.find((n) => n.id === link.source);
+      const sourceNode = safeNodes.find((n) => n.id === link.source);
       const color = link.isNegative ? "#EF4444" : sourceNode?.color || "#a855f7";
 
       return {
@@ -490,7 +495,7 @@ function CyberSankeyComponent({
       midX: number;
       midY: number;
     }[];
-  }, [links, nodePositions, nodes]);
+  }, [safeLinks, nodePositions, safeNodes]);
 
   // Initialize particle system AFTER linkPaths is calculated
   // Use linkPaths.length to ensure particles only reference valid paths
@@ -543,9 +548,9 @@ function CyberSankeyComponent({
       </div>
 
       <svg
-        width={width}
-        height={height}
-        viewBox={`0 0 ${width} ${height}`}
+        width={safeWidth}
+        height={safeHeight}
+        viewBox={`0 0 ${safeWidth} ${safeHeight}`}
         className="overflow-visible"
       >
         <defs>
@@ -612,18 +617,20 @@ function CyberSankeyComponent({
           ))}
 
           {/* Node inner gradients */}
-          {nodes.map((node, i) => (
-            <linearGradient
-              key={`node-inner-${i}`}
-              id={`node-inner-${i}`}
-              x1="0%"
-              y1="0%"
-              x2="100%"
-              y2="100%"
-            >
-              <stop offset="0%" stopColor={node.color} stopOpacity={0.2} />
-              <stop offset="100%" stopColor="transparent" />
-            </linearGradient>
+          {safeNodes.map((node, i) => (
+            node && node.color ? (
+              <linearGradient
+                key={`node-inner-${i}`}
+                id={`node-inner-${i}`}
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="100%"
+              >
+                <stop offset="0%" stopColor={node.color} stopOpacity={0.2} />
+                <stop offset="100%" stopColor="transparent" />
+              </linearGradient>
+            ) : null
           ))}
         </defs>
 
@@ -636,7 +643,7 @@ function CyberSankeyComponent({
             strokeWidth="0.5"
           />
         </pattern>
-        <rect width={width} height={height} fill="url(#cyber-grid)" />
+        <rect width={safeWidth} height={safeHeight} fill="url(#cyber-grid)" />
 
         {/* Links */}
         {linkPaths.map((pathData, i) => (
@@ -684,7 +691,8 @@ function CyberSankeyComponent({
             })}
 
         {/* Nodes */}
-        {nodes.map((node, i) => {
+        {safeNodes.map((node, i) => {
+          if (!node || !node.id) return null;
           const pos = nodePositions[node.id];
           if (!pos) return null;
 
@@ -740,12 +748,14 @@ export function StrategyFlow({
   height = 450,
   className,
 }: StrategyFlowProps) {
-  // Ensure numeric values are valid
-  const safeInitialValue = typeof initialValue === "number" && isFinite(initialValue) ? initialValue : 0;
-  const safeProjectedValue = typeof projectedValue === "number" && isFinite(projectedValue) ? projectedValue : 0;
+  // Ensure all values are valid numbers
+  const safeWidth = typeof width === "number" && isFinite(width) && width > 0 ? width : 900;
+  const safeHeight = typeof height === "number" && isFinite(height) && height > 0 ? height : 450;
+  const safeInitialValue = typeof initialValue === "number" && isFinite(initialValue) ? initialValue : 10000;
+  const safeProjectedValue = typeof projectedValue === "number" && isFinite(projectedValue) ? projectedValue : 10000;
   const safeNetApy = typeof netApy === "number" && isFinite(netApy) ? netApy : 0;
-  const safeSources = Array.isArray(sources) ? sources : [];
-  const safeBorrowCosts = Array.isArray(borrowCosts) ? borrowCosts : [];
+  const safeSources = Array.isArray(sources) ? sources.filter(s => s && typeof s.apy === "number") : [];
+  const safeBorrowCosts = Array.isArray(borrowCosts) ? borrowCosts.filter(c => c && typeof c.apy === "number") : [];
 
   // Convert to Sankey nodes and links
   const { nodes, links } = useMemo(() => {
@@ -865,25 +875,33 @@ export function StrategyFlow({
     return { nodes: allNodes, links: flowLinks };
   }, [safeSources, safeBorrowCosts, safeNetApy, safeInitialValue, safeProjectedValue]);
 
-  // Don't render if there are no valid nodes/links
-  if (nodes.length < 2 || links.length === 0) {
+  // Debug info at top
+  const debugInfo = `Nodes: ${nodes.length}, Links: ${links.length}, Sources: ${safeSources.length}, Costs: ${safeBorrowCosts.length}`;
+
+  // Always show something - even if just input->output
+  if (nodes.length < 2) {
     return (
-      <div className={cn("flex flex-col items-center justify-center text-white/50 py-16", className)}>
+      <div className={cn("flex flex-col items-center justify-center text-white/50 py-16", className)}
+           style={{ width: safeWidth, height: safeHeight, border: "1px solid rgba(255,255,255,0.1)" }}>
         <div className="text-lg mb-2">Strategy Flow</div>
-        <div className="text-sm opacity-60">Add yield sources to see the flow visualization</div>
+        <div className="text-sm opacity-60">Build a strategy to see the flow visualization</div>
+        <div className="text-xs mt-4 text-purple-400/60">{debugInfo}</div>
       </div>
     );
   }
 
   return (
-    <CyberSankey
-      nodes={nodes}
-      links={links}
-      width={width}
-      height={height}
-      className={className}
-      showParticles={true}
-      particleCount={30}
-    />
+    <div style={{ width: safeWidth, height: safeHeight, border: "1px solid rgba(168,85,247,0.2)", borderRadius: "8px" }}>
+      <div className="text-xs text-center text-purple-400/60 py-1">{debugInfo}</div>
+      <CyberSankey
+        nodes={nodes}
+        links={links}
+        width={safeWidth}
+        height={safeHeight - 24}
+        className={className}
+        showParticles={false}
+        particleCount={0}
+      />
+    </div>
   );
 }

@@ -147,6 +147,9 @@ interface StrategyState {
   yields: StrategyApyData | null;
   yieldsLoading: boolean;
 
+  // Prices (live from CoinGecko)
+  ethPrice: number;
+
   // UI state
   isSidebarOpen: boolean;
   isResultsPanelOpen: boolean;
@@ -178,6 +181,9 @@ interface StrategyState {
   setYieldsLoading: (loading: boolean) => void;
   getStakingApy: (protocol: string) => number;
   getLendingApy: (protocol: string, type: "supply" | "borrow", asset?: string) => number;
+
+  // Actions - Prices
+  setEthPrice: (price: number) => void;
 
   // Actions - UI
   toggleSidebar: () => void;
@@ -315,6 +321,7 @@ export const useStrategyStore = create<StrategyState>()(
       isSimulating: false,
       yields: null,
       yieldsLoading: false,
+      ethPrice: 2700, // Default, will be updated from API
       isSidebarOpen: true,
       isResultsPanelOpen: true,
       savedSystems: [],
@@ -856,6 +863,11 @@ export const useStrategyStore = create<StrategyState>()(
         // Fallback to hardcoded defaults
         const key = type === "borrow" ? `${protocol}:eth:borrow` : `${protocol}:eth`;
         return getDefaultApy(key);
+      },
+
+      // Actions - Prices
+      setEthPrice: (price) => {
+        set({ ethPrice: price });
       },
     }),
     { name: "strategy-store" }

@@ -98,6 +98,10 @@ export interface LendingProtocolConfig {
   markets: LendingMarket[];
 }
 
+// TODO: Fetch LTV/liquidation thresholds from Aave API or on-chain
+// These are fallback values - real data should come from:
+// - Aave: https://aave-api-v2.aave.com/data/markets-data
+// - Or on-chain via Aave Pool contract getReserveData()
 export const LENDING_PROTOCOLS: LendingProtocolConfig[] = [
   {
     id: "aave-v3",
@@ -109,35 +113,35 @@ export const LENDING_PROTOCOLS: LendingProtocolConfig[] = [
       {
         asset: "ETH",
         chain: 1,
-        supplyApy: 2.1,
-        borrowApy: 2.8,
-        maxLtv: 80,
-        liquidationThreshold: 82.5,
+        supplyApy: 1.8,       // Fallback - real APY from DeFi Llama
+        borrowApy: 2.5,       // Fallback - real APY from DeFi Llama
+        maxLtv: 80.5,         // Aave V3 Ethereum (as of 2025)
+        liquidationThreshold: 83,
         defiLlamaPoolId: "aave-v3:eth",
       },
       {
         asset: "weETH",
         chain: 1,
-        supplyApy: 0.5,
-        borrowApy: 0,
-        maxLtv: 77,
-        liquidationThreshold: 80,
+        supplyApy: 0.1,       // Minimal supply APY for LSTs
+        borrowApy: 0,         // weETH not borrowable
+        maxLtv: 72.5,         // Aave V3 weETH E-Mode parameters
+        liquidationThreshold: 75,
         defiLlamaPoolId: "aave-v3:weeth",
       },
       {
         asset: "stETH",
         chain: 1,
-        supplyApy: 0.3,
-        borrowApy: 0,
-        maxLtv: 75,
-        liquidationThreshold: 78,
+        supplyApy: 0.1,
+        borrowApy: 0,         // stETH not borrowable
+        maxLtv: 74,
+        liquidationThreshold: 76,
         defiLlamaPoolId: "aave-v3:steth",
       },
       {
         asset: "USDC",
         chain: 1,
-        supplyApy: 8.5,
-        borrowApy: 10.2,
+        supplyApy: 5.0,
+        borrowApy: 6.5,
         maxLtv: 77,
         liquidationThreshold: 80,
         defiLlamaPoolId: "aave-v3:usdc",
@@ -274,17 +278,19 @@ export const DEFAULT_APYS: Record<string, number> = {
 
 // ============================================================================
 // Gas Cost Estimates (in USD)
+// Based on ~3 gwei gas price and ~$2700 ETH (2025/2026 L1 conditions)
+// L2s would be 10-100x cheaper
 // ============================================================================
 
 export const GAS_COSTS = {
-  stake: 25,
-  unstake: 30,
-  lend: 35,
-  borrow: 40,
-  repay: 35,
-  withdraw: 30,
-  swap: 20,
-  approve: 10,
+  stake: 2,      // ~150k gas @ 3 gwei = ~$1.20
+  unstake: 2.5,  // ~200k gas
+  lend: 3,       // ~250k gas (supply to Aave)
+  borrow: 3.5,   // ~300k gas
+  repay: 2.5,    // ~200k gas
+  withdraw: 2.5, // ~200k gas
+  swap: 1.5,     // ~120k gas (Uniswap)
+  approve: 0.5,  // ~50k gas
 };
 
 // ============================================================================

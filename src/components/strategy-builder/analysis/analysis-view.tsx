@@ -1,11 +1,10 @@
 "use client";
 
 /**
- * Strategy Analysis View - Premium Cyberpunk Edition
+ * Strategy Analysis View - Modern Edition
  *
- * Advanced data visualization for DeFi strategy analysis.
- * Features holographic cards, animated Sankey flows, neon gauges,
- * and premium particle effects.
+ * Clean, minimal design inspired by Linear, Stripe, Mercury.
+ * No glows, no heavy gradients - just clear data presentation.
  */
 
 import { useMemo, memo, useState, Component, ErrorInfo, ReactNode } from "react";
@@ -16,24 +15,19 @@ import {
   TrendingDown,
   AlertTriangle,
   Zap,
-  Sparkles,
   Layers,
-  PiggyBank,
-  HandCoins,
   ArrowUpRight,
+  ArrowDownRight,
   DollarSign,
   Gauge,
   Activity,
+  ChevronRight,
+  Info,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStrategyStore } from "@/lib/strategy/store";
-import { Orbitron, Exo_2, Fira_Code } from "next/font/google";
-
-// Import premium components
-import { HoloMetricCard, MetricGrid } from "./holo-metric-card";
-import { NeonHealthGauge, NoBorrowingState } from "./neon-health-gauge";
-import { StrategyFlow } from "./cyber-sankey";
-import { ParticleField } from "./particle-field";
 
 // ============================================================================
 // Error Boundary
@@ -65,9 +59,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   render() {
     if (this.state.hasError) {
       return this.props.fallback || (
-        <div className="flex items-center justify-center p-8 text-white/50">
+        <div className="flex items-center justify-center p-8 text-zinc-500">
           <div className="text-center">
-            <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+            <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-amber-500" />
             <div className="text-sm">Something went wrong</div>
           </div>
         </div>
@@ -79,377 +73,430 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 }
 
 // ============================================================================
-// Fonts
+// Clean Card Components
 // ============================================================================
 
-const orbitron = Orbitron({
-  subsets: ["latin"],
-  variable: "--font-display",
-  display: "swap",
-  weight: ["400", "500", "600", "700", "800", "900"],
-});
-
-const exo2 = Exo_2({
-  subsets: ["latin"],
-  variable: "--font-body",
-  display: "swap",
-});
-
-const firaCode = Fira_Code({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap",
-});
-
-// ============================================================================
-// Animation Variants
-// ============================================================================
-
-const fadeIn = {
-  initial: { opacity: 0, y: 20 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -20 },
-};
-
-const stagger = {
-  animate: { transition: { staggerChildren: 0.08 } },
-};
-
-// ============================================================================
-// Section Header
-// ============================================================================
-
-interface SectionHeaderProps {
-  title: string;
-  subtitle?: string;
-  icon?: React.ReactNode;
-  action?: React.ReactNode;
+interface CardProps {
+  children: React.ReactNode;
+  className?: string;
 }
 
-function SectionHeader({ title, subtitle, icon, action }: SectionHeaderProps) {
+function Card({ children, className }: CardProps) {
   return (
-    <div className="flex items-center justify-between mb-6">
-      <div className="flex items-center gap-3">
-        {icon && (
-          <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500/20 to-violet-600/10 border border-purple-500/20">
-            {icon}
-          </div>
-        )}
-        <div>
-          <h2
-            className={cn(
-              "text-lg font-bold tracking-wide text-white",
-              orbitron.className
-            )}
-          >
-            {title}
-          </h2>
-          {subtitle && (
-            <p className="text-xs text-white/40 mt-0.5">{subtitle}</p>
-          )}
-        </div>
-      </div>
-      {action}
+    <div className={cn(
+      "bg-zinc-900/50 rounded-xl border border-zinc-800/80 p-5",
+      className
+    )}>
+      {children}
+    </div>
+  );
+}
+
+function SectionHeader({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="mb-5">
+      <h3 className="text-sm font-medium text-zinc-100">{title}</h3>
+      {description && (
+        <p className="text-xs text-zinc-500 mt-0.5">{description}</p>
+      )}
     </div>
   );
 }
 
 // ============================================================================
-// Premium Card Wrapper
+// Stat Card
 // ============================================================================
 
-interface PremiumCardProps {
-  children: React.ReactNode;
-  className?: string;
-  glow?: boolean;
+interface StatCardProps {
+  label: string;
+  value: string;
+  subValue?: string;
+  trend?: "up" | "down" | "neutral";
+  icon?: React.ReactNode;
 }
 
-function PremiumCard({ children, className, glow = false }: PremiumCardProps) {
+function StatCard({ label, value, subValue, trend, icon }: StatCardProps) {
   return (
-    <motion.div
-      variants={fadeIn}
-      className={cn(
-        "relative rounded-2xl overflow-hidden",
-        "bg-gradient-to-br from-[#12121a]/95 to-[#0a0a10]/98",
-        "border border-purple-500/10",
-        glow && "shadow-[0_0_40px_rgba(168,85,247,0.1)]",
-        className
+    <div className="p-4 rounded-xl bg-zinc-900/30 border border-zinc-800/50">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-zinc-500 uppercase tracking-wide">{label}</span>
+        {icon && <span className="text-zinc-500">{icon}</span>}
+      </div>
+      <div className="text-xl font-semibold text-zinc-100 font-mono">{value}</div>
+      {subValue && (
+        <div className={cn(
+          "text-xs font-mono mt-1",
+          trend === "up" && "text-emerald-400",
+          trend === "down" && "text-rose-400",
+          trend === "neutral" && "text-zinc-500"
+        )}>
+          {subValue}
+        </div>
       )}
-    >
-      {/* Corner accents */}
-      <div className="absolute top-0 left-0 w-8 h-8 border-l-2 border-t-2 border-purple-500/20 rounded-tl-xl" />
-      <div className="absolute top-0 right-0 w-8 h-8 border-r-2 border-t-2 border-cyan-500/20 rounded-tr-xl" />
-      <div className="absolute bottom-0 left-0 w-8 h-8 border-l-2 border-b-2 border-cyan-500/20 rounded-bl-xl" />
-      <div className="absolute bottom-0 right-0 w-8 h-8 border-r-2 border-b-2 border-purple-500/20 rounded-br-xl" />
-
-      {/* Top accent line */}
-      <div className="absolute top-0 left-10 right-10 h-px bg-gradient-to-r from-transparent via-purple-500/30 to-transparent" />
-
-      {children}
-    </motion.div>
+    </div>
   );
 }
 
 // ============================================================================
-// APY Breakdown Bars
+// APY Breakdown - Clean bars
 // ============================================================================
 
-interface APYBreakdownProps {
-  items: Array<{
-    label: string;
-    type: string;
-    value: number;
-    protocol?: string;
-  }>;
-  netApy: number;
+interface APYItem {
+  label: string;
+  type: string;
+  value: number;
+  protocol?: string;
 }
 
-function APYBreakdown({ items, netApy }: APYBreakdownProps) {
-  // Safeguard: ensure items is an array
+function APYBreakdown({ items, netApy }: { items: APYItem[]; netApy: number }) {
   const safeItems = Array.isArray(items) ? items : [];
-  const safeNetApy = typeof netApy === "number" && isFinite(netApy) ? netApy : 0;
+  const maxValue = Math.max(...safeItems.map(i => Math.abs(i.value || 0)), 0.01);
 
-  // If no items, show placeholder
   if (safeItems.length === 0) {
     return (
-      <div className="text-center py-8 text-white/40">
-        <div className="text-sm">No yield sources configured</div>
+      <div className="text-center py-8 text-zinc-500 text-sm">
+        No yield sources configured
       </div>
     );
   }
 
-  const maxAbs = Math.max(...safeItems.map((i) => Math.abs(i.value || 0)), 0.01);
-
-  const typeColors: Record<string, { bg: string; text: string; bar: string }> = {
-    stake: { bg: "bg-purple-500/20", text: "text-purple-400", bar: "#A855F7" },
-    supply: { bg: "bg-green-500/20", text: "text-green-400", bar: "#22C55E" },
-    lend: { bg: "bg-green-500/20", text: "text-green-400", bar: "#22C55E" },
-    borrow: { bg: "bg-amber-500/20", text: "text-amber-400", bar: "#F59E0B" },
-    rewards: { bg: "bg-cyan-500/20", text: "text-cyan-400", bar: "#06B6D4" },
-  };
-
   return (
     <div className="space-y-4">
       {safeItems.map((item, i) => {
-        const itemValue = typeof item.value === "number" && isFinite(item.value) ? item.value : 0;
-        const isPositive = itemValue >= 0;
-        const barWidth = Math.min(100, (Math.abs(itemValue) / maxAbs) * 100);
-        const colorScheme = typeColors[item.type] || typeColors.rewards;
+        const value = typeof item.value === "number" && isFinite(item.value) ? item.value : 0;
+        const isPositive = value >= 0;
+        const barWidth = (Math.abs(value) / maxValue) * 100;
 
         return (
           <motion.div
-            key={`${item.label || "item"}-${item.type || "unknown"}-${i}`}
-            initial={{ opacity: 0, x: -20 }}
+            key={`${item.label}-${item.type}-${i}`}
+            initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="space-y-2"
+            transition={{ delay: i * 0.03 }}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium text-white">{item.label || "Unknown"}</span>
-                <span
-                  className={cn(
-                    "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
-                    colorScheme.bg,
-                    colorScheme.text
-                  )}
-                >
-                  {item.type || "yield"}
-                </span>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-zinc-300">{item.label}</span>
+                <span className="text-[10px] text-zinc-600 uppercase">{item.type}</span>
               </div>
-              <span
-                className={cn(
-                  "text-sm font-bold tabular-nums",
-                  firaCode.className,
-                  isPositive ? "text-green-400" : "text-red-400"
-                )}
-              >
-                {isPositive ? "+" : ""}
-                {itemValue.toFixed(2)}%
+              <span className={cn(
+                "text-sm font-mono font-medium",
+                isPositive ? "text-emerald-400" : "text-rose-400"
+              )}>
+                {isPositive ? "+" : ""}{value.toFixed(2)}%
               </span>
             </div>
-
-            {/* Animated bar */}
-            <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+            <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
               <motion.div
-                className="h-full rounded-full"
-                style={{
-                  background: isPositive
-                    ? `linear-gradient(90deg, ${colorScheme.bar}, ${colorScheme.bar}80)`
-                    : "linear-gradient(90deg, #EF4444, #EF444480)",
-                }}
+                className={cn(
+                  "h-full rounded-full",
+                  isPositive ? "bg-emerald-500/70" : "bg-rose-500/70"
+                )}
                 initial={{ width: 0 }}
                 animate={{ width: `${barWidth}%` }}
-                transition={{ duration: 0.8, delay: i * 0.05, ease: "easeOut" }}
+                transition={{ delay: i * 0.03, duration: 0.4 }}
               />
             </div>
           </motion.div>
         );
       })}
 
-      {/* Net APY Total */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.4 }}
-        className="pt-4 mt-4 border-t border-white/10"
-      >
+      <div className="pt-4 mt-4 border-t border-zinc-800">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-purple-400" />
-            <span className={cn("text-sm font-bold text-white", orbitron.className)}>
-              Net APY
+          <span className="text-sm font-medium text-zinc-400">Net APY</span>
+          <div className="flex items-center gap-1.5">
+            {netApy >= 0 ? (
+              <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <ArrowDownRight className="w-4 h-4 text-rose-400" />
+            )}
+            <span className={cn(
+              "text-lg font-semibold font-mono",
+              netApy >= 0 ? "text-emerald-400" : "text-rose-400"
+            )}>
+              {netApy >= 0 ? "+" : ""}{netApy.toFixed(2)}%
             </span>
           </div>
-          <span
-            className={cn(
-              "text-2xl font-bold tabular-nums",
-              firaCode.className,
-              netApy >= 0 ? "text-green-400" : "text-red-400"
-            )}
-            style={{
-              textShadow:
-                netApy >= 0
-                  ? "0 0 20px rgba(34, 197, 94, 0.5)"
-                  : "0 0 20px rgba(239, 68, 68, 0.5)",
-            }}
-          >
-            {netApy >= 0 ? "+" : ""}
-            {netApy.toFixed(2)}%
-          </span>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }
 
 // ============================================================================
-// Projection Flow
+// Health Gauge - Clean radial
 // ============================================================================
 
-interface ProjectionFlowProps {
+function HealthGauge({ value, liquidationPrice }: { value: number; liquidationPrice?: number | null }) {
+  const safeValue = typeof value === "number" && isFinite(value) ? value : 0;
+  const percentage = Math.min(100, (safeValue / 3) * 100);
+
+  const getColor = () => {
+    if (safeValue < 1.25) return { stroke: "#ef4444", text: "text-rose-400", label: "Critical" };
+    if (safeValue < 1.5) return { stroke: "#f59e0b", text: "text-amber-400", label: "Low" };
+    if (safeValue < 2) return { stroke: "#22c55e", text: "text-emerald-400", label: "Safe" };
+    return { stroke: "#22c55e", text: "text-emerald-400", label: "Very Safe" };
+  };
+
+  const config = getColor();
+  const radius = 60;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+  return (
+    <div className="flex flex-col items-center py-4">
+      <div className="relative w-36 h-36">
+        <svg className="w-full h-full -rotate-90">
+          <circle
+            cx="72"
+            cy="72"
+            r={radius}
+            fill="none"
+            stroke="#27272a"
+            strokeWidth="8"
+          />
+          <motion.circle
+            cx="72"
+            cy="72"
+            r={radius}
+            fill="none"
+            stroke={config.stroke}
+            strokeWidth="8"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            initial={{ strokeDashoffset: circumference }}
+            animate={{ strokeDashoffset }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className={cn("text-2xl font-semibold font-mono", config.text)}>
+            {safeValue.toFixed(2)}
+          </span>
+          <span className="text-xs text-zinc-500">{config.label}</span>
+        </div>
+      </div>
+
+      {liquidationPrice && (
+        <div className="mt-4 text-center">
+          <div className="text-xs text-zinc-500">Liquidation at</div>
+          <div className="text-sm font-mono text-zinc-300">${liquidationPrice.toFixed(0)} ETH</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NoBorrowingState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-8 text-center">
+      <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center mb-3">
+        <CheckCircle className="w-6 h-6 text-emerald-400" />
+      </div>
+      <div className="text-sm text-zinc-300">No Borrowing</div>
+      <div className="text-xs text-zinc-500 mt-1">No liquidation risk</div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Projection Flow - Clean steps
+// ============================================================================
+
+function ProjectionFlow({
+  initialValue,
+  projectedValue,
+  gasCost,
+  fees
+}: {
   initialValue: number;
   projectedValue: number;
   gasCost: number;
   fees: number;
-}
-
-function ProjectionFlow({ initialValue, projectedValue, gasCost, fees }: ProjectionFlowProps) {
+}) {
   const grossYield = projectedValue - initialValue + gasCost + fees;
   const netGain = projectedValue - initialValue;
 
   const steps = [
-    {
-      label: "Initial Capital",
-      value: `$${initialValue.toLocaleString()}`,
-      color: "cyan",
-      icon: <DollarSign className="w-4 h-4" />,
-    },
-    {
-      label: "Strategy Yields",
-      value: `+$${Math.round(grossYield).toLocaleString()}`,
-      color: "green",
-      icon: <TrendingUp className="w-4 h-4" />,
-    },
-    {
-      label: "Gas & Protocol Fees",
-      value: `-$${Math.round(gasCost + fees).toLocaleString()}`,
-      color: "red",
-      icon: <TrendingDown className="w-4 h-4" />,
-    },
-    {
-      label: "Projected Value (1Y)",
-      value: `$${Math.round(projectedValue).toLocaleString()}`,
-      color: "purple",
-      icon: <Sparkles className="w-4 h-4" />,
-      highlight: true,
-    },
+    { label: "Initial Capital", value: initialValue, type: "neutral" as const },
+    { label: "Strategy Yields", value: grossYield, type: "positive" as const },
+    { label: "Gas & Fees", value: -(gasCost + fees), type: "negative" as const },
+    { label: "Projected (1Y)", value: projectedValue, type: "highlight" as const },
   ];
 
-  const colorSchemes: Record<string, { bg: string; border: string; text: string }> = {
-    cyan: { bg: "from-cyan-500/10 to-cyan-600/5", border: "border-cyan-500/30", text: "text-cyan-400" },
-    green: { bg: "from-green-500/10 to-green-600/5", border: "border-green-500/30", text: "text-green-400" },
-    red: { bg: "from-red-500/10 to-red-600/5", border: "border-red-500/30", text: "text-red-400" },
-    purple: { bg: "from-purple-500/10 to-purple-600/5", border: "border-purple-500/30", text: "text-purple-400" },
-  };
-
   return (
-    <div className="space-y-3">
-      {steps.map((step, i) => {
-        const scheme = colorSchemes[step.color];
+    <div className="space-y-2">
+      {steps.map((step, i) => (
+        <motion.div
+          key={step.label}
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.05 }}
+          className={cn(
+            "flex items-center justify-between p-3 rounded-lg",
+            step.type === "highlight"
+              ? "bg-emerald-500/10 border border-emerald-500/20"
+              : "bg-zinc-800/30"
+          )}
+        >
+          <span className={cn(
+            "text-sm",
+            step.type === "highlight" ? "font-medium text-zinc-100" : "text-zinc-400"
+          )}>
+            {step.label}
+          </span>
+          <span className={cn(
+            "font-mono font-medium",
+            step.type === "positive" && "text-emerald-400",
+            step.type === "negative" && "text-rose-400",
+            step.type === "neutral" && "text-zinc-300",
+            step.type === "highlight" && "text-emerald-400 text-lg"
+          )}>
+            {step.type === "positive" && "+"}
+            ${Math.abs(Math.round(step.value)).toLocaleString()}
+          </span>
+        </motion.div>
+      ))}
 
-        return (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.1 }}
-            className={cn(
-              "relative flex items-center justify-between p-4 rounded-xl",
-              "bg-gradient-to-r border backdrop-blur-sm",
-              scheme.bg,
-              scheme.border,
-              step.highlight && "ring-1 ring-purple-500/30"
-            )}
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className={cn(
-                  "w-8 h-8 rounded-lg flex items-center justify-center",
-                  `bg-gradient-to-br ${scheme.bg}`
-                )}
-              >
-                <span className={scheme.text}>{step.icon}</span>
-              </div>
-              <span
-                className={cn(
-                  "text-sm",
-                  step.highlight ? "font-semibold text-white" : "text-white/70"
-                )}
-              >
-                {step.label}
-              </span>
-            </div>
-            <span
-              className={cn(
-                "font-bold tabular-nums",
-                firaCode.className,
-                step.highlight ? "text-lg" : "text-base",
-                scheme.text
-              )}
-              style={step.highlight ? { textShadow: "0 0 20px rgba(168, 85, 247, 0.5)" } : {}}
-            >
-              {step.value}
-            </span>
-
-            {/* Connector line */}
-            {i < steps.length - 1 && (
-              <div className="absolute left-7 -bottom-3 w-px h-3 bg-gradient-to-b from-white/20 to-transparent" />
-            )}
-          </motion.div>
-        );
-      })}
-
-      {/* Net gain highlight */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: 0.5 }}
-        className="mt-4 p-4 rounded-xl bg-gradient-to-r from-green-500/10 to-emerald-500/5 border border-green-500/30"
-      >
+      <div className="mt-4 pt-4 border-t border-zinc-800">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-white/70">Net Annual Gain</span>
-          <span
-            className={cn(
-              "text-xl font-bold tabular-nums",
-              firaCode.className,
-              netGain >= 0 ? "text-green-400" : "text-red-400"
-            )}
-          >
+          <span className="text-sm text-zinc-400">Net Annual Gain</span>
+          <span className={cn(
+            "text-lg font-semibold font-mono",
+            netGain >= 0 ? "text-emerald-400" : "text-rose-400"
+          )}>
             {netGain >= 0 ? "+" : ""}${Math.round(netGain).toLocaleString()}
           </span>
         </div>
-      </motion.div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Strategy Pipeline - Clean flow
+// ============================================================================
+
+interface PipelineStep {
+  id: string;
+  label: string;
+  value?: string;
+  apy?: number;
+  isWarning?: boolean;
+}
+
+function StrategyPipeline({ steps }: { steps: PipelineStep[] }) {
+  if (steps.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-2 overflow-x-auto py-2">
+      {steps.map((step, i) => (
+        <div key={step.id} className="flex items-center">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+            className={cn(
+              "flex flex-col items-center px-4 py-3 rounded-lg min-w-[80px]",
+              "bg-zinc-800/50 border",
+              step.isWarning
+                ? "border-amber-500/30 bg-amber-500/5"
+                : "border-zinc-700/50"
+            )}
+          >
+            <span className="text-[11px] font-medium text-zinc-400 uppercase tracking-wide">
+              {step.label}
+            </span>
+            {step.value && (
+              <span className="text-sm font-semibold text-zinc-200 mt-1 font-mono">
+                {step.value}
+              </span>
+            )}
+            {step.apy !== undefined && (
+              <span className={cn(
+                "text-sm font-semibold mt-1 font-mono",
+                step.apy >= 0 ? "text-emerald-400" : "text-rose-400"
+              )}>
+                {step.apy >= 0 ? "+" : ""}{step.apy.toFixed(1)}%
+              </span>
+            )}
+          </motion.div>
+
+          {i < steps.length - 1 && (
+            <ChevronRight className="w-4 h-4 text-zinc-600 mx-1 shrink-0" />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// Risk Indicator
+// ============================================================================
+
+function RiskIndicator({ level, score }: { level: string; score: number }) {
+  const config: Record<string, { color: string; text: string; label: string }> = {
+    low: { color: "bg-emerald-500", text: "text-emerald-400", label: "Low Risk" },
+    medium: { color: "bg-amber-500", text: "text-amber-400", label: "Medium Risk" },
+    high: { color: "bg-orange-500", text: "text-orange-400", label: "High Risk" },
+    extreme: { color: "bg-rose-500", text: "text-rose-400", label: "Extreme Risk" },
+  };
+
+  const c = config[level] || config.medium;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className={cn("text-sm font-medium", c.text)}>{c.label}</span>
+        <span className="text-xs text-zinc-500">{score}/100</span>
+      </div>
+      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+        <motion.div
+          className={cn("h-full rounded-full", c.color)}
+          initial={{ width: 0 }}
+          animate={{ width: `${score}%` }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Insight Alert
+// ============================================================================
+
+interface InsightData {
+  type: "info" | "success" | "warning" | "danger";
+  title: string;
+  description: string;
+  metric?: string;
+}
+
+function Insight({ type, title, description, metric }: InsightData) {
+  const config = {
+    info: { icon: Info, bg: "bg-blue-500/5", border: "border-blue-500/20", text: "text-blue-400" },
+    success: { icon: CheckCircle, bg: "bg-emerald-500/5", border: "border-emerald-500/20", text: "text-emerald-400" },
+    warning: { icon: AlertCircle, bg: "bg-amber-500/5", border: "border-amber-500/20", text: "text-amber-400" },
+    danger: { icon: AlertCircle, bg: "bg-rose-500/5", border: "border-rose-500/20", text: "text-rose-400" },
+  };
+
+  const c = config[type];
+  const Icon = c.icon;
+
+  return (
+    <div className={cn("flex items-start gap-3 p-3 rounded-lg border", c.bg, c.border)}>
+      <Icon className={cn("w-4 h-4 mt-0.5 shrink-0", c.text)} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-zinc-200">{title}</span>
+          {metric && (
+            <span className={cn("text-xs font-mono font-medium", c.text)}>{metric}</span>
+          )}
+        </div>
+        <p className="text-xs text-zinc-500 mt-0.5">{description}</p>
+      </div>
     </div>
   );
 }
@@ -459,53 +506,28 @@ function ProjectionFlow({ initialValue, projectedValue, gasCost, fees }: Project
 // ============================================================================
 
 function RiskBadge({ level }: { level: string }) {
-  const config: Record<string, { bg: string; border: string; text: string; glow: string }> = {
-    low: {
-      bg: "from-green-500/20 to-emerald-500/10",
-      border: "border-green-500/40",
-      text: "text-green-400",
-      glow: "shadow-[0_0_15px_rgba(34,197,94,0.3)]",
-    },
-    medium: {
-      bg: "from-amber-500/20 to-orange-500/10",
-      border: "border-amber-500/40",
-      text: "text-amber-400",
-      glow: "shadow-[0_0_15px_rgba(245,158,11,0.3)]",
-    },
-    high: {
-      bg: "from-red-500/20 to-rose-500/10",
-      border: "border-red-500/40",
-      text: "text-red-400",
-      glow: "shadow-[0_0_15px_rgba(239,68,68,0.3)]",
-    },
-    extreme: {
-      bg: "from-red-600/20 to-rose-600/10",
-      border: "border-red-600/40",
-      text: "text-red-500",
-      glow: "shadow-[0_0_20px_rgba(239,68,68,0.4)]",
-    },
+  const config: Record<string, { bg: string; text: string }> = {
+    low: { bg: "bg-emerald-500/10", text: "text-emerald-400" },
+    medium: { bg: "bg-amber-500/10", text: "text-amber-400" },
+    high: { bg: "bg-orange-500/10", text: "text-orange-400" },
+    extreme: { bg: "bg-rose-500/10", text: "text-rose-400" },
   };
 
   const c = config[level] || config.medium;
+  const labels: Record<string, string> = {
+    low: "Low Risk",
+    medium: "Medium Risk",
+    high: "High Risk",
+    extreme: "Extreme Risk",
+  };
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider",
-        "bg-gradient-to-r border backdrop-blur-sm",
-        c.bg,
-        c.border,
-        c.text,
-        c.glow
-      )}
-    >
-      <motion.span
-        className="w-2 h-2 rounded-full"
-        style={{ backgroundColor: "currentColor" }}
-        animate={{ scale: [1, 1.2, 1], opacity: [1, 0.7, 1] }}
-        transition={{ duration: 1.5, repeat: Infinity }}
-      />
-      {level === "low" ? "Low Risk" : level === "medium" ? "Medium Risk" : level === "high" ? "High Risk" : "Extreme Risk"}
+    <span className={cn(
+      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium",
+      c.bg, c.text
+    )}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current" />
+      {labels[level] || "Unknown"}
     </span>
   );
 }
@@ -527,7 +549,7 @@ function AnalysisViewComponent({ onBack }: AnalysisViewProps) {
   const yieldItems = useMemo(() => {
     if (!result?.yieldSources) return [];
 
-    const map = new Map<string, { label: string; type: string; value: number; protocol: string }>();
+    const map = new Map<string, APYItem>();
 
     result.yieldSources.forEach((source) => {
       const key = `${source.protocol}-${source.type}`;
@@ -549,69 +571,139 @@ function AnalysisViewComponent({ onBack }: AnalysisViewProps) {
     return Array.from(map.values()).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
   }, [result?.yieldSources]);
 
-  // Prepare flow data
-  const flowData = useMemo(() => {
-    if (!result?.yieldSources) return { sources: [], borrowCosts: [] };
+  // Strategy pipeline steps
+  const pipelineSteps = useMemo(() => {
+    if (!result) return [];
 
-    const sources = result.yieldSources
-      .filter((s) => s.type !== "borrow")
-      .map((s) => ({
-        name: s.protocol.charAt(0).toUpperCase() + s.protocol.slice(1),
-        sublabel: s.type,
-        apy: (s.apy * s.weight) / 100,
-        color: s.type === "stake" ? "#A855F7" : "#22C55E",
-      }));
+    const steps: PipelineStep[] = [];
 
-    const borrowCosts = result.yieldSources
-      .filter((s) => s.type === "borrow")
-      .map((s) => ({
-        name: s.protocol.charAt(0).toUpperCase() + s.protocol.slice(1),
-        sublabel: "Borrow Cost",
-        apy: Math.abs((s.apy * s.weight) / 100),
-        color: "#EF4444",
-      }));
+    steps.push({
+      id: "input",
+      label: "Capital",
+      value: `$${result.initialValue.toLocaleString()}`,
+    });
 
-    return { sources, borrowCosts };
-  }, [result?.yieldSources]);
+    const hasStaking = result.yieldSources.some(s => s.type === "stake");
+    const hasLending = result.yieldSources.some(s => s.type === "supply");
+    const hasBorrowing = result.yieldSources.some(s => s.type === "borrow");
 
+    if (hasStaking) {
+      const apy = result.yieldSources
+        .filter(s => s.type === "stake")
+        .reduce((sum, s) => sum + (s.apy * s.weight) / 100, 0);
+      steps.push({ id: "stake", label: "Stake", apy });
+    }
+
+    if (hasLending) {
+      const apy = result.yieldSources
+        .filter(s => s.type === "supply")
+        .reduce((sum, s) => sum + (s.apy * s.weight) / 100, 0);
+      steps.push({ id: "lend", label: "Supply", apy });
+    }
+
+    if (hasBorrowing) {
+      const apy = result.yieldSources
+        .filter(s => s.type === "borrow")
+        .reduce((sum, s) => sum + (s.apy * s.weight) / 100, 0);
+      steps.push({
+        id: "borrow",
+        label: "Borrow",
+        apy,
+        isWarning: result.healthFactor !== null && result.healthFactor < 1.5,
+      });
+    }
+
+    if (result.leverage > 1.5) {
+      steps.push({
+        id: "loop",
+        label: "Loop",
+        value: `${result.leverage.toFixed(1)}x`,
+        isWarning: result.leverage > 3,
+      });
+    }
+
+    steps.push({ id: "output", label: "Result", apy: result.netApy });
+
+    return steps;
+  }, [result]);
+
+  // Generate insights
+  const insights = useMemo(() => {
+    if (!result) return [];
+
+    const list: InsightData[] = [];
+
+    if (result.netApy > 5) {
+      list.push({
+        type: "success",
+        title: "Strong Yield",
+        description: "Above-average returns compared to typical DeFi yields.",
+        metric: `${result.netApy.toFixed(2)}% APY`,
+      });
+    } else if (result.netApy > 0) {
+      list.push({
+        type: "info",
+        title: "Positive Returns",
+        description: "Strategy is profitable after all costs.",
+        metric: `${result.netApy.toFixed(2)}% APY`,
+      });
+    }
+
+    if (result.healthFactor !== null) {
+      if (result.healthFactor < 1.25) {
+        list.push({
+          type: "danger",
+          title: "Critical Liquidation Risk",
+          description: "Position is extremely close to liquidation.",
+          metric: `HF: ${result.healthFactor.toFixed(2)}`,
+        });
+      } else if (result.healthFactor < 1.5) {
+        list.push({
+          type: "warning",
+          title: "Elevated Risk",
+          description: "Health factor below recommended 1.5 threshold.",
+          metric: `HF: ${result.healthFactor.toFixed(2)}`,
+        });
+      }
+    }
+
+    if (result.leverage > 3) {
+      list.push({
+        type: "warning",
+        title: "High Leverage",
+        description: "Leverage above 3x amplifies both gains and losses.",
+        metric: `${result.leverage.toFixed(1)}x`,
+      });
+    }
+
+    return list;
+  }, [result]);
+
+  // Empty state
   if (!result || !result.isValid) {
     return (
-      <div
-        className={cn(
-          "flex-1 flex items-center justify-center relative overflow-hidden",
-          "bg-gradient-to-b from-[#050508] via-[#0a0a0f] to-[#050508]",
-          orbitron.variable,
-          exo2.variable,
-          firaCode.variable
-        )}
-      >
-        {/* <ParticleField intensity="low" /> */}
-
+      <div className="flex-1 flex items-center justify-center bg-zinc-950">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="relative z-10 text-center max-w-md px-8"
+          className="text-center max-w-sm px-8"
         >
-          <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-purple-500/20 to-violet-600/10 border border-purple-500/20 flex items-center justify-center">
-            <Sparkles className="w-10 h-10 text-purple-400" />
+          <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center">
+            <Activity className="w-8 h-8 text-zinc-500" />
           </div>
-          <h2 className={cn("text-2xl font-bold text-white mb-3", orbitron.className)}>
-            <span className="bg-gradient-to-r from-purple-400 via-cyan-400 to-pink-400 bg-clip-text text-transparent">
-              No Strategy to Analyze
-            </span>
+          <h2 className="text-lg font-semibold text-zinc-100 mb-2">
+            No Strategy to Analyze
           </h2>
-          <p className="text-white/50 mb-8">
-            Build a strategy on the canvas to see detailed analysis and projections.
+          <p className="text-sm text-zinc-500 mb-6">
+            Build a strategy on the canvas to see detailed analysis.
           </p>
-          <motion.button
+          <button
             onClick={onBack}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-violet-500 text-white font-semibold shadow-[0_0_20px_rgba(168,85,247,0.3)]"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-sm font-medium transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Canvas
-          </motion.button>
+          </button>
         </motion.div>
       </div>
     );
@@ -620,207 +712,142 @@ function AnalysisViewComponent({ onBack }: AnalysisViewProps) {
   const netGain = result.projectedValue1Y - result.initialValue;
 
   return (
-    <motion.div
-      initial="initial"
-      animate="animate"
-      variants={stagger}
-      className={cn(
-        "flex-1 overflow-hidden relative",
-        "bg-gradient-to-b from-[#050508] via-[#0a0a0f] to-[#050508]",
-        orbitron.variable,
-        exo2.variable,
-        firaCode.variable
-      )}
-    >
-      {/* Particle background - disabled for debugging */}
-      {/* <ParticleField intensity="low" /> */}
-
+    <div className="flex-1 overflow-hidden bg-zinc-950">
       {/* Header */}
-      <div className="sticky top-0 z-20 bg-[#050508]/95 backdrop-blur-xl border-b border-purple-500/10">
-        <div className="flex items-center justify-between px-8 py-4">
-          <div className="flex items-center gap-4">
-            <motion.button
+      <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800/50">
+        <div className="flex items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <button
               onClick={onBack}
-              whileHover={{ scale: 1.1, x: -2 }}
-              whileTap={{ scale: 0.9 }}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors border border-white/10"
+              className="p-2 rounded-lg hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-100 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
-            </motion.button>
+            </button>
             <div>
-              <h1
-                className={cn(
-                  "text-xl font-bold tracking-wider uppercase",
-                  "bg-gradient-to-r from-white via-purple-300 to-cyan-400 bg-clip-text text-transparent",
-                  orbitron.className
-                )}
-              >
+              <h1 className="text-base font-semibold text-zinc-100">
                 Strategy Analysis
               </h1>
-              <p className={cn("text-xs text-white/40 flex items-center gap-1.5", exo2.className)}>
-                <Activity className="w-3 h-3 text-purple-400" />
-                Real-time performance projections
-              </p>
+              <p className="text-xs text-zinc-500">Performance projections</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-5">
             <RiskBadge level={result.riskLevel} />
 
             <div className="text-right">
-              <div className="text-[10px] text-white/40 uppercase tracking-wider">Net APY</div>
-              <div
-                className={cn(
-                  "text-3xl font-bold tabular-nums",
-                  firaCode.className,
-                  result.netApy >= 0 ? "text-green-400" : "text-red-400"
-                )}
-                style={{
-                  textShadow:
-                    result.netApy >= 0
-                      ? "0 0 30px rgba(34, 197, 94, 0.5)"
-                      : "0 0 30px rgba(239, 68, 68, 0.5)",
-                }}
-              >
-                {result.netApy >= 0 ? "+" : ""}
-                {result.netApy.toFixed(2)}%
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Net APY</div>
+              <div className={cn(
+                "text-2xl font-semibold font-mono",
+                result.netApy >= 0 ? "text-emerald-400" : "text-rose-400"
+              )}>
+                {result.netApy >= 0 ? "+" : ""}{result.netApy.toFixed(2)}%
               </div>
             </div>
           </div>
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex px-8 gap-1">
+        {/* Tabs */}
+        <div className="flex px-6 gap-1 border-t border-zinc-800/30">
           {[
-            { id: "overview", label: "Overview", icon: <Gauge className="w-4 h-4" /> },
-            { id: "flow", label: "Flow Analysis", icon: <Activity className="w-4 h-4" /> },
+            { id: "overview", label: "Overview" },
+            { id: "flow", label: "Flow Analysis" },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as "overview" | "flow")}
               className={cn(
-                "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg transition-all",
+                "px-4 py-2.5 text-sm font-medium transition-colors relative",
                 activeTab === tab.id
-                  ? "bg-purple-500/20 text-purple-300 border-b-2 border-purple-500"
-                  : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                  ? "text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300"
               )}
             >
-              {tab.icon}
               {tab.label}
+              {activeTab === tab.id && (
+                <motion.div
+                  layoutId="activeTab"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-100"
+                />
+              )}
             </button>
           ))}
         </div>
       </div>
 
       {/* Content */}
-      <div className="overflow-y-auto h-[calc(100%-140px)] px-8 py-6">
+      <div className="overflow-y-auto h-[calc(100%-120px)] px-6 py-6">
         <AnimatePresence mode="wait">
           {activeTab === "overview" ? (
             <motion.div
               key="overview"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="max-w-7xl mx-auto space-y-6"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="max-w-5xl mx-auto space-y-6"
             >
-              {/* Key Metrics */}
-              <motion.div variants={stagger}>
-                <MetricGrid columns={4}>
-                  <HoloMetricCard
-                    label="Initial Value"
-                    value={`$${result.initialValue.toLocaleString()}`}
-                    icon={<DollarSign className="w-4 h-4 text-cyan-400" />}
-                    color="cyan"
-                  />
-                  <HoloMetricCard
-                    label="Projected (1Y)"
-                    value={`$${Math.round(result.projectedValue1Y).toLocaleString()}`}
-                    subValue={`${netGain >= 0 ? "+" : ""}$${Math.round(netGain).toLocaleString()}`}
-                    trend={netGain >= 0 ? "up" : "down"}
-                    icon={<TrendingUp className="w-4 h-4 text-green-400" />}
-                    color="green"
-                  />
-                  <HoloMetricCard
-                    label="Leverage"
-                    value={`${result.leverage.toFixed(2)}x`}
-                    trend={result.leverage > 2 ? "up" : "neutral"}
-                    icon={<Layers className="w-4 h-4 text-purple-400" />}
-                    color="purple"
-                  />
-                  <HoloMetricCard
-                    label="Est. Gas Cost"
-                    value={`$${result.gasCostUsd}`}
-                    icon={<Zap className="w-4 h-4 text-amber-400" />}
-                    color="amber"
-                  />
-                </MetricGrid>
-              </motion.div>
+              {/* Stats Grid */}
+              <div className="grid grid-cols-4 gap-4">
+                <StatCard
+                  label="Initial"
+                  value={`$${result.initialValue.toLocaleString()}`}
+                  icon={<DollarSign className="w-4 h-4" />}
+                />
+                <StatCard
+                  label="Projected (1Y)"
+                  value={`$${Math.round(result.projectedValue1Y).toLocaleString()}`}
+                  subValue={`${netGain >= 0 ? "+" : ""}$${Math.round(netGain).toLocaleString()}`}
+                  trend={netGain >= 0 ? "up" : "down"}
+                  icon={<TrendingUp className="w-4 h-4" />}
+                />
+                <StatCard
+                  label="Leverage"
+                  value={`${result.leverage.toFixed(2)}x`}
+                  icon={<Layers className="w-4 h-4" />}
+                />
+                <StatCard
+                  label="Gas Cost"
+                  value={`$${result.gasCostUsd}`}
+                  icon={<Zap className="w-4 h-4" />}
+                />
+              </div>
 
               {/* Main Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* APY Breakdown */}
-                <PremiumCard className="lg:col-span-2 p-6" glow>
+                <Card className="lg:col-span-2">
                   <SectionHeader
                     title="APY Breakdown"
-                    subtitle="Yield sources and costs"
-                    icon={<PiggyBank className="w-4 h-4 text-green-400" />}
-                    action={
-                      result.leverage > 1.1 && (
-                        <span
-                          className={cn(
-                            "text-xs px-3 py-1 rounded-lg font-bold",
-                            "bg-amber-500/20 text-amber-400 border border-amber-500/20"
-                          )}
-                        >
-                          {result.leverage.toFixed(1)}x Leveraged
-                        </span>
-                      )
-                    }
+                    description="Yield sources and costs"
                   />
                   <ErrorBoundary>
                     <APYBreakdown items={yieldItems} netApy={result.netApy} />
                   </ErrorBoundary>
-                </PremiumCard>
+                </Card>
 
                 {/* Health Factor */}
-                <PremiumCard className="p-6" glow>
+                <Card>
                   <SectionHeader
                     title="Health Factor"
-                    subtitle="Liquidation risk assessment"
-                    icon={<Gauge className="w-4 h-4 text-cyan-400" />}
+                    description="Liquidation risk"
                   />
-
                   <ErrorBoundary fallback={<NoBorrowingState />}>
                     {result.healthFactor !== null ? (
-                      <NeonHealthGauge
+                      <HealthGauge
                         value={result.healthFactor}
-                        max={3}
                         liquidationPrice={result.liquidationPrice}
                       />
                     ) : (
                       <NoBorrowingState />
                     )}
                   </ErrorBoundary>
-                </PremiumCard>
+                </Card>
               </div>
 
               {/* Projection */}
-              <PremiumCard className="p-6" glow>
+              <Card>
                 <SectionHeader
                   title="1 Year Projection"
-                  subtitle="Expected returns breakdown"
-                  icon={<ArrowUpRight className="w-4 h-4 text-green-400" />}
-                  action={
-                    <span
-                      className={cn(
-                        "text-sm font-bold",
-                        firaCode.className,
-                        netGain >= 0 ? "text-green-400" : "text-red-400"
-                      )}
-                    >
-                      {netGain >= 0 ? "+" : ""}${Math.round(netGain).toLocaleString()}
-                    </span>
-                  }
+                  description="Expected returns breakdown"
                 />
                 <ErrorBoundary>
                   <ProjectionFlow
@@ -830,45 +857,31 @@ function AnalysisViewComponent({ onBack }: AnalysisViewProps) {
                     fees={result.protocolFees}
                   />
                 </ErrorBoundary>
-              </PremiumCard>
+              </Card>
 
-              {/* Warnings */}
+              {/* Warning */}
               {result.healthFactor !== null && result.healthFactor < 1.5 && (
                 <motion.div
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   className={cn(
-                    "flex items-start gap-4 p-5 rounded-2xl",
-                    "bg-gradient-to-r border",
+                    "flex items-start gap-3 p-4 rounded-xl border",
                     result.healthFactor < 1.25
-                      ? "from-red-500/10 to-rose-500/5 border-red-500/30"
-                      : "from-amber-500/10 to-orange-500/5 border-amber-500/30"
+                      ? "bg-rose-500/5 border-rose-500/20"
+                      : "bg-amber-500/5 border-amber-500/20"
                   )}
                 >
-                  <motion.div
-                    animate={{ scale: [1, 1.1, 1] }}
-                    transition={{ duration: 1, repeat: Infinity }}
-                    className={cn(
-                      "w-12 h-12 rounded-xl flex items-center justify-center shrink-0",
-                      result.healthFactor < 1.25 ? "bg-red-500/20" : "bg-amber-500/20"
-                    )}
-                  >
-                    <AlertTriangle
-                      className={cn(
-                        "w-6 h-6",
-                        result.healthFactor < 1.25 ? "text-red-400" : "text-amber-400"
-                      )}
-                    />
-                  </motion.div>
+                  <AlertTriangle className={cn(
+                    "w-5 h-5 shrink-0",
+                    result.healthFactor < 1.25 ? "text-rose-400" : "text-amber-400"
+                  )} />
                   <div>
-                    <div className="font-bold text-white">
+                    <div className="text-sm font-medium text-zinc-100">
                       {result.healthFactor < 1.25 ? "Critical Health Factor" : "Low Health Factor"}
                     </div>
-                    <div className="text-sm text-white/60 mt-1">
-                      Health Factor: {result.healthFactor.toFixed(2)} — Consider reducing leverage to avoid
-                      liquidation.
-                      {result.liquidationPrice &&
-                        ` Liquidation triggers at $${result.liquidationPrice.toFixed(0)} ETH price.`}
+                    <div className="text-xs text-zinc-500 mt-1">
+                      Health Factor: {result.healthFactor.toFixed(2)} — Consider reducing leverage.
+                      {result.liquidationPrice && ` Liquidation at $${result.liquidationPrice.toFixed(0)} ETH.`}
                     </div>
                   </div>
                 </motion.div>
@@ -877,51 +890,79 @@ function AnalysisViewComponent({ onBack }: AnalysisViewProps) {
           ) : (
             <motion.div
               key="flow"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="max-w-7xl mx-auto"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="max-w-5xl mx-auto space-y-6"
             >
-              <PremiumCard className="p-8" glow>
+              {/* Pipeline */}
+              <Card>
                 <SectionHeader
-                  title="Strategy Flow"
-                  subtitle="Visualize how value flows through your strategy"
-                  icon={<Activity className="w-4 h-4 text-purple-400" />}
+                  title="Strategy Pipeline"
+                  description="How capital flows through the strategy"
                 />
+                <ErrorBoundary>
+                  <StrategyPipeline steps={pipelineSteps} />
+                </ErrorBoundary>
+              </Card>
 
-                <div className="flex justify-center overflow-x-auto py-8">
-                  <div className="text-white/60 text-center">
-                    <div className="text-lg mb-2">Flow Visualization</div>
-                    <div className="text-sm">
-                      Net APY: {result.netApy?.toFixed(2) ?? "N/A"}% |
-                      Sources: {flowData.sources?.length ?? 0} |
-                      Costs: {flowData.borrowCosts?.length ?? 0}
+              {/* Two column */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Risk */}
+                <Card>
+                  <SectionHeader
+                    title="Risk Assessment"
+                    description="Overall strategy risk"
+                  />
+                  <ErrorBoundary>
+                    <div className="space-y-4">
+                      <RiskIndicator level={result.riskLevel} score={result.riskScore} />
+
+                      {result.healthFactor !== null && (
+                        <div className="pt-4 border-t border-zinc-800">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-zinc-500">Health Factor</span>
+                            <span className="font-mono text-zinc-300">{result.healthFactor.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {result.liquidationPrice && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-zinc-500">Liquidation Price</span>
+                          <span className="font-mono text-zinc-300">${result.liquidationPrice.toFixed(0)}</span>
+                        </div>
+                      )}
                     </div>
-                    {flowData.sources && flowData.sources.length > 0 && (
-                      <ErrorBoundary
-                        fallback={
-                          <div className="mt-4 text-amber-400">Unable to render flow diagram</div>
-                        }
-                      >
-                        <StrategyFlow
-                          sources={flowData.sources}
-                          borrowCosts={flowData.borrowCosts}
-                          netApy={result.netApy}
-                          initialValue={result.initialValue}
-                          projectedValue={result.projectedValue1Y}
-                          width={850}
-                          height={400}
-                        />
-                      </ErrorBoundary>
+                  </ErrorBoundary>
+                </Card>
+
+                {/* Insights */}
+                <Card>
+                  <SectionHeader
+                    title="Key Insights"
+                    description="Strategy analysis"
+                  />
+                  <ErrorBoundary>
+                    {insights.length > 0 ? (
+                      <div className="space-y-3">
+                        {insights.map((insight, i) => (
+                          <Insight key={i} {...insight} />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 text-zinc-500 text-sm">
+                        No significant insights
+                      </div>
                     )}
-                  </div>
-                </div>
-              </PremiumCard>
+                  </ErrorBoundary>
+                </Card>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
-    </motion.div>
+    </div>
   );
 }
 

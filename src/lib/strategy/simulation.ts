@@ -50,6 +50,7 @@ interface BlockState {
 
 interface SimulationContext {
   initialValue: number;
+  ethPrice: number;
   blockStates: Map<string, BlockState>;
   yieldSources: YieldSource[];
   totalGasCost: number;
@@ -64,7 +65,8 @@ interface SimulationContext {
 // Constants
 // ============================================================================
 
-const ETH_PRICE = 3300; // Demo price - would fetch from API in production
+// Default ETH price as fallback - will be overridden by live price
+const DEFAULT_ETH_PRICE = 2700;
 
 // ============================================================================
 // Graph Utilities
@@ -115,15 +117,25 @@ function getEdgeFlowPercent(edges: StrategyEdge[], sourceId: string, targetId: s
 }
 
 /**
- * Detect if graph has cycles using DFS
+ * Detect cycles and return info about the loop
  */
-function hasCycle(
+interface LoopInfo {
+  hasCycle: boolean;
+  loopBackEdge: StrategyEdge | null; // The edge that creates the cycle
+  ltv: number; // LTV from the borrow block in the loop
+  borrowBlockId: string | null;
+}
+
+function detectLoop(
   blocks: StrategyBlock[],
   edges: StrategyEdge[]
-): boolean {
+): LoopInfo {
   const adj = buildAdjacencyList(edges);
   const visited = new Set<string>();
   const recursionStack = new Set<string>();
+  const parent = new Map<string, string>();
+  let loopBackEdge: StrategyEdge | null = null;
+  let cycleEnd: string | null = null;
 
   function dfs(nodeId: string): boolean {
     visited.add(nodeId);
@@ -132,8 +144,12 @@ function hasCycle(
     const neighbors = adj.get(nodeId) ?? [];
     for (const neighbor of neighbors) {
       if (!visited.has(neighbor)) {
+        parent.set(neighbor, nodeId);
         if (dfs(neighbor)) return true;
       } else if (recursionStack.has(neighbor)) {
+        // Found cycle - the edge from nodeId to neighbor creates it
+        loopBackEdge = edges.find(e => e.source === nodeId && e.target === neighbor) || null;
+        cycleEnd = neighbor;
         return true;
       }
     }
@@ -144,11 +160,28 @@ function hasCycle(
 
   for (const block of blocks) {
     if (!visited.has(block.id)) {
-      if (dfs(block.id)) return true;
+      if (dfs(block.id)) break;
     }
   }
 
-  return false;
+  if (!loopBackEdge) {
+    return { hasCycle: false, loopBackEdge: null, ltv: 0, borrowBlockId: null };
+  }
+
+  // Find the borrow block in the cycle to get the LTV
+  // Look through all blocks to find a borrow block (simpler approach)
+  const borrowBlock = blocks.find(b => b.type === "borrow");
+
+  const ltv = borrowBlock
+    ? (borrowBlock.data as BorrowBlockData).ltvPercent / 100
+    : 0.7; // Default 70% if not found
+
+  return {
+    hasCycle: true,
+    loopBackEdge,
+    ltv,
+    borrowBlockId: borrowBlock?.id || null,
+  };
 }
 
 /**
@@ -211,7 +244,7 @@ function processInputBlock(
   ctx: SimulationContext
 ): BlockState {
   const data = block.data as InputBlockData;
-  const value = data.asset === "ETH" ? data.amount * ETH_PRICE : data.amount;
+  const value = data.asset === "ETH" ? data.amount * ctx.ethPrice : data.amount;
   ctx.initialValue = value;
 
   return {
@@ -270,7 +303,8 @@ function processStakeBlock(
   });
 
   ctx.totalGasCost += gasCost;
-  ctx.riskScore += (protocol?.riskScore ?? 30) * 0.3;
+  // Protocol risk is tracked once per unique protocol, not per block
+  // This is handled at the end of simulation
 
   // Output amount is roughly 1:1 for staking (minus small gas)
   const outputValue = inputValue - gasCost;
@@ -335,7 +369,7 @@ function processLendBlock(
   });
 
   ctx.totalGasCost += gasCost;
-  ctx.riskScore += (protocol?.riskScore ?? 20) * 0.25;
+  // Protocol risk is tracked once per unique protocol, not per block
 
   const outputValue = inputValue - gasCost;
 
@@ -359,7 +393,8 @@ function processLendBlock(
 function processBorrowBlock(
   block: StrategyBlock,
   ctx: SimulationContext,
-  edges: StrategyEdge[]
+  edges: StrategyEdge[],
+  blocks: StrategyBlock[]
 ): BlockState {
   const data = block.data as BorrowBlockData;
   const reverseAdj = buildReverseAdjacency(edges);
@@ -370,6 +405,8 @@ function processBorrowBlock(
   let inputLeverage = 1;
   let inputAsset: string | null = null;
   let inputAmount = 0;
+  let inputLiquidationThreshold = 0;
+
   for (const inputId of inputIds) {
     const inputState = ctx.blockStates.get(inputId);
     if (inputState && inputState.isCollateral) {
@@ -382,6 +419,13 @@ function processBorrowBlock(
       inputLeverage = inputState.leverage;
       inputAsset = inputState.asset;
       inputAmount += inputState.outputAmount * flowMultiplier;
+
+      // Get liquidation threshold from the lend block
+      const lendBlock = blocks.find(b => b.id === inputId);
+      if (lendBlock?.type === "lend") {
+        const lendData = lendBlock.data as LendBlockData;
+        inputLiquidationThreshold = lendData.liquidationThreshold ?? 82.5;
+      }
     }
   }
 
@@ -396,9 +440,11 @@ function processBorrowBlock(
     weight: ctx.initialValue > 0 ? (borrowValue / ctx.initialValue) * 100 : 100,
   });
 
-  const liqThreshold = 0.825;
+  // Get liquidation threshold from the upstream lend block if available
+  // Default to 82.5% which is typical for LSTs on Aave
+  const liqThreshold = inputLiquidationThreshold > 0 ? inputLiquidationThreshold / 100 : 0.825;
   const healthFactor = borrowValue > 0 ? (collateralValue * liqThreshold) / borrowValue : Infinity;
-  const liquidationPrice = ETH_PRICE * (borrowValue / (collateralValue * liqThreshold));
+  const liquidationPrice = ctx.ethPrice * (borrowValue / (collateralValue * liqThreshold));
 
   const newLeverage = ctx.initialValue > 0
     ? inputLeverage + (borrowValue / ctx.initialValue)
@@ -412,12 +458,11 @@ function processBorrowBlock(
 
   ctx.totalGasCost += gasCost;
 
-  if (data.ltvPercent >= 80) ctx.riskScore += 30;
-  else if (data.ltvPercent >= 70) ctx.riskScore += 20;
-  else if (data.ltvPercent >= 60) ctx.riskScore += 10;
+  // Track max LTV for risk calculation at the end (not accumulated per block)
+  // Risk score will be calculated based on overall strategy characteristics
 
   // Calculate borrowed amount in the borrowed asset
-  const borrowedAmount = data.asset === "ETH" ? borrowValue / ETH_PRICE : borrowValue;
+  const borrowedAmount = data.asset === "ETH" ? borrowValue / ctx.ethPrice : borrowValue;
 
   return {
     value: borrowValue,
@@ -471,7 +516,7 @@ function processSwapBlock(
   ctx.totalGasCost += gasCost;
 
   // Calculate output amount in the target asset
-  const outputAmount = data.toAsset === "ETH" ? outputValue / ETH_PRICE : outputValue;
+  const outputAmount = data.toAsset === "ETH" ? outputValue / ctx.ethPrice : outputValue;
 
   return {
     value: outputValue,
@@ -526,7 +571,8 @@ function createErrorResult(message: string): SimulationResult {
  */
 export function simulateStrategy(
   blocks: StrategyBlock[],
-  edges: StrategyEdge[]
+  edges: StrategyEdge[],
+  ethPrice: number = DEFAULT_ETH_PRICE
 ): SimulationResult {
   // Validate strategy
   if (blocks.length === 0) {
@@ -538,17 +584,22 @@ export function simulateStrategy(
     return createErrorResult("Strategy needs an Input block");
   }
 
-  // Check for cycles (not supported - duplicate blocks manually for leverage)
-  if (hasCycle(blocks, edges)) {
-    return createErrorResult("Strategy contains a cycle. For leverage loops, duplicate blocks instead of connecting back.");
-  }
+  // Check for cycles - if found, handle as a leverage loop
+  const loopInfo = detectLoop(blocks, edges);
 
-  // Process blocks in topological order
+  // If there's a cycle, we'll process it as a leverage loop
+  // Remove the loop-back edge for topological processing
+  const processedEdges = loopInfo.hasCycle && loopInfo.loopBackEdge
+    ? edges.filter(e => e.id !== loopInfo.loopBackEdge!.id)
+    : edges;
+
+  // Process blocks in topological order (using edges without loop-back for sorting)
   try {
-    const sortedBlocks = topologicalSort(blocks, edges);
+    const sortedBlocks = topologicalSort(blocks, processedEdges);
 
     const ctx: SimulationContext = {
       initialValue: 0,
+      ethPrice,
       blockStates: new Map(),
       yieldSources: [],
       totalGasCost: 0,
@@ -573,7 +624,7 @@ export function simulateStrategy(
           state = processLendBlock(block, ctx, edges);
           break;
         case "borrow":
-          state = processBorrowBlock(block, ctx, edges);
+          state = processBorrowBlock(block, ctx, edges, blocks);
           break;
         case "swap":
           state = processSwapBlock(block, ctx, edges);
@@ -598,6 +649,40 @@ export function simulateStrategy(
       ctx.blockStates.set(block.id, state);
     }
 
+    // If this is a leverage loop, calculate the effective leverage multiplier
+    // Leverage loop formula: with LTV = r, effective leverage = 1 / (1 - r)
+    // This multiplies all yields (both positive and negative)
+    let loopLeverage = 1;
+    if (loopInfo.hasCycle && loopInfo.ltv > 0) {
+      loopLeverage = 1 / (1 - loopInfo.ltv);
+
+      // Apply leverage multiplier to yield sources
+      // Stake/supply yields are multiplied by leverage
+      // Borrow costs are also multiplied (they increase with more iterations)
+      ctx.yieldSources = ctx.yieldSources.map(source => ({
+        ...source,
+        weight: source.weight * loopLeverage,
+      }));
+
+      // Update the context leverage
+      ctx.leverage = Math.max(ctx.leverage, loopLeverage);
+
+      // Recalculate health factor for the leveraged position
+      // With leverage L and LTV r: HF = liquidation_threshold / (r * L / L) = LT / r
+      // More simply: as you loop, HF approaches LT / r
+      const liquidationThreshold = 0.825; // Typical for LSTs on Aave
+      const effectiveHF = liquidationThreshold / loopInfo.ltv;
+      ctx.healthFactor = effectiveHF;
+
+      // Liquidation price: current_price * (1 - margin_of_safety)
+      // Where margin_of_safety = (HF - 1) / HF
+      const marginOfSafety = (effectiveHF - 1) / effectiveHF;
+      ctx.liquidationPrice = ctx.ethPrice * (1 - marginOfSafety);
+
+      // Add risk for leverage loops
+      ctx.riskScore += Math.min(40, loopLeverage * 10);
+    }
+
     // Calculate total APY
     const grossApy = ctx.yieldSources.reduce((sum, s) => sum + s.apy * (s.weight / 100), 0);
 
@@ -614,11 +699,35 @@ export function simulateStrategy(
     const projectedValue1Y = ctx.initialValue * (1 + netApy / 100);
     const projectedYield1Y = projectedValue1Y - ctx.initialValue;
 
-    // Risk level
+    // Calculate risk score based on overall strategy characteristics
+    // 1. Health factor risk (most important)
+    let riskScore = 0;
+    if (ctx.healthFactor !== null) {
+      if (ctx.healthFactor < 1.1) riskScore += 50;
+      else if (ctx.healthFactor < 1.25) riskScore += 35;
+      else if (ctx.healthFactor < 1.5) riskScore += 20;
+      else if (ctx.healthFactor < 2.0) riskScore += 10;
+    }
+
+    // 2. Leverage risk
+    if (ctx.leverage >= 5) riskScore += 30;
+    else if (ctx.leverage >= 3) riskScore += 20;
+    else if (ctx.leverage >= 2) riskScore += 10;
+
+    // 3. Unique protocols (more protocols = more smart contract risk)
+    const uniqueProtocols = new Set(ctx.yieldSources.map(s => s.protocol)).size;
+    if (uniqueProtocols >= 4) riskScore += 15;
+    else if (uniqueProtocols >= 2) riskScore += 5;
+
+    ctx.riskScore = Math.min(100, riskScore);
+
+    // Risk level based on health factor primarily
     let riskLevel: RiskLevel = "low";
-    if (ctx.riskScore >= 70 || ctx.leverage >= 4) riskLevel = "extreme";
-    else if (ctx.riskScore >= 50 || ctx.leverage >= 3) riskLevel = "high";
-    else if (ctx.riskScore >= 30 || ctx.leverage >= 2) riskLevel = "medium";
+    if (ctx.healthFactor !== null && ctx.healthFactor < 1.15) riskLevel = "extreme";
+    else if (ctx.healthFactor !== null && ctx.healthFactor < 1.3) riskLevel = "high";
+    else if (ctx.leverage >= 4 || riskScore >= 60) riskLevel = "extreme";
+    else if (ctx.leverage >= 2.5 || riskScore >= 40) riskLevel = "high";
+    else if (ctx.leverage >= 1.5 || riskScore >= 20) riskLevel = "medium";
 
     const maxDrawdown = ctx.leverage > 1
       ? Math.min(100, 20 * ctx.leverage)

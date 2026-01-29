@@ -55,8 +55,41 @@ function BorrowBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) 
   // Always use live APY from DeFi Llama (defaults to aave-v3 borrow rate)
   const liveBorrowApy = getLendingApy("aave-v3", "borrow");
 
+  // Get ETH price from store (live price)
+  const ethPrice = useStrategyStore((state) => state.ethPrice) || ETH_PRICE;
+
   // Trace back to find collateral context
   const collateralContext = useMemo(() => {
+    // Helper to recursively trace back and find value in USD
+    const traceBackValue = (blockId: string, flowMultiplier: number): number => {
+      const block = blocks.find((b) => b.id === blockId);
+      if (!block) return 0;
+
+      if (block.type === "input") {
+        const inputData = block.data as unknown as InputBlockData;
+        const value = inputData.asset === "ETH" ? inputData.amount * ethPrice : inputData.amount;
+        return value * flowMultiplier;
+      }
+
+      if (block.type === "borrow") {
+        // For borrow blocks, trace back to find collateral, then apply LTV
+        const borrowData = block.data as unknown as BorrowBlockData;
+        const inEdge = edges.find((e) => e.target === blockId);
+        if (!inEdge) return 0;
+        const edgeData = inEdge.data as StrategyEdgeData | undefined;
+        const edgeFlow = (edgeData?.flowPercent ?? 100) / 100;
+        const collateralValue = traceBackValue(inEdge.source, flowMultiplier * edgeFlow);
+        return collateralValue * (borrowData.ltvPercent / 100);
+      }
+
+      // For other blocks (stake, lend, swap), trace back through incoming edge
+      const inEdge = edges.find((e) => e.target === blockId);
+      if (!inEdge) return 0;
+      const edgeData = inEdge.data as StrategyEdgeData | undefined;
+      const edgeFlow = (edgeData?.flowPercent ?? 100) / 100;
+      return traceBackValue(inEdge.source, flowMultiplier * edgeFlow);
+    };
+
     // Find edge pointing to this block
     const incomingEdge = edges.find((e) => e.target === id);
     if (!incomingEdge) {
@@ -77,38 +110,23 @@ function BorrowBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) 
     if (sourceBlock.type === "lend") {
       const lendData = sourceBlock.data as unknown as LendBlockData;
 
-      // Now trace back from Lend to get the actual collateral value
-      const lendIncomingEdge = edges.find((e) => e.target === sourceBlock.id);
-      let collateralValue = 0;
+      // Trace back recursively to find collateral value
+      const collateralValue = traceBackValue(sourceBlock.id, flowPercent / 100);
+
+      // Find the collateral asset by tracing to the nearest stake block
       let collateralAsset = "ETH";
-
-      if (lendIncomingEdge) {
-        const lendSource = blocks.find((b) => b.id === lendIncomingEdge.source);
-        const lendEdgeData = lendIncomingEdge.data as StrategyEdgeData | undefined;
-        const lendFlowPercent = lendEdgeData?.flowPercent ?? 100;
-
-        if (lendSource?.type === "stake") {
-          const stakeData = lendSource.data as unknown as StakeBlockData;
+      let currentBlockId = sourceBlock.id;
+      for (let i = 0; i < 10; i++) { // Max depth to prevent infinite loops
+        const edge = edges.find((e) => e.target === currentBlockId);
+        if (!edge) break;
+        const block = blocks.find((b) => b.id === edge.source);
+        if (!block) break;
+        if (block.type === "stake") {
+          const stakeData = block.data as unknown as StakeBlockData;
           collateralAsset = stakeData.outputAsset;
-
-          // Trace back further to input
-          const stakeIncomingEdge = edges.find((e) => e.target === lendSource.id);
-          if (stakeIncomingEdge) {
-            const inputBlock = blocks.find((b) => b.id === stakeIncomingEdge.source);
-            if (inputBlock?.type === "input") {
-              const inputData = inputBlock.data as unknown as InputBlockData;
-              const stakeEdgeData = stakeIncomingEdge.data as StrategyEdgeData | undefined;
-              const stakeFlowPercent = stakeEdgeData?.flowPercent ?? 100;
-              const inputValue = inputData.asset === "ETH" ? inputData.amount * ETH_PRICE : inputData.amount;
-              collateralValue = (inputValue * stakeFlowPercent / 100) * (lendFlowPercent / 100) * (flowPercent / 100);
-            }
-          }
-        } else if (lendSource?.type === "input") {
-          const inputData = lendSource.data as unknown as InputBlockData;
-          collateralAsset = inputData.asset;
-          const inputValue = inputData.asset === "ETH" ? inputData.amount * ETH_PRICE : inputData.amount;
-          collateralValue = (inputValue * lendFlowPercent / 100) * (flowPercent / 100);
+          break;
         }
+        currentBlockId = edge.source;
       }
 
       return {
@@ -121,7 +139,7 @@ function BorrowBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) 
     }
 
     return { connected: false, collateralValue: 0, collateralAsset: "ETH", lendProtocol: null, liquidationThreshold: 82.5 };
-  }, [id, blocks, edges]);
+  }, [id, blocks, edges, ethPrice]);
 
   // Calculate borrow amount and health factor
   const calculations = useMemo(() => {
@@ -135,16 +153,16 @@ function BorrowBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) 
 
     // Liquidation price (ETH)
     const liquidationPrice = borrowValue > 0
-      ? ETH_PRICE * (borrowValue / (collateralValue * (liquidationThreshold / 100)))
+      ? ethPrice * (borrowValue / (collateralValue * (liquidationThreshold / 100)))
       : 0;
 
     // Borrow amount in asset terms (assume 1:1 for stablecoins, convert for ETH)
     const borrowAmount = blockData.asset === "ETH"
-      ? borrowValue / ETH_PRICE
+      ? borrowValue / ethPrice
       : borrowValue;
 
     return { borrowValue, borrowAmount, healthFactor, liquidationPrice };
-  }, [collateralContext, blockData.ltvPercent, blockData.asset]);
+  }, [collateralContext, blockData.ltvPercent, blockData.asset, ethPrice]);
 
   // Handle asset change
   const handleAssetChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -155,9 +173,13 @@ function BorrowBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) 
     });
   };
 
-  // Handle LTV change
+  // Handle LTV change - cap at liquidation threshold to prevent invalid configs
+  const maxSafeLtv = collateralContext.liquidationThreshold
+    ? Math.floor(collateralContext.liquidationThreshold - 2) // 2% buffer below liq threshold
+    : 70;
+
   const handleLtvChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = Math.min(Math.max(parseFloat(e.target.value) || 0, 0), 95);
+    const value = Math.min(Math.max(parseFloat(e.target.value) || 0, 0), maxSafeLtv);
     updateBlock(id, { ltvPercent: value });
   };
 
@@ -232,10 +254,10 @@ function BorrowBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) 
           </div>
           <input
             type="range"
-            value={blockData.ltvPercent}
+            value={Math.min(blockData.ltvPercent, maxSafeLtv)}
             onChange={handleLtvChange}
             min={10}
-            max={90}
+            max={maxSafeLtv}
             step={5}
             className="nodrag w-full h-1.5 rounded-full bg-[#1a1a24] appearance-none cursor-pointer
                        [&::-webkit-slider-thumb]:appearance-none
@@ -248,7 +270,7 @@ function BorrowBlockComponent({ id, data, selected }: NodeProps<StrategyBlock>) 
           />
           <div className="flex justify-between text-[10px] text-white/30 mt-0.5">
             <span>Safe (10%)</span>
-            <span>Max (90%)</span>
+            <span>Max ({maxSafeLtv}%)</span>
           </div>
         </div>
 

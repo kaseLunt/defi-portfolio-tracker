@@ -203,16 +203,17 @@ function CompactResultsBar({ onViewDetails }: { onViewDetails: () => void }) {
 function SimulationRunner() {
   const blocks = useStrategyStore((state) => state.blocks);
   const edges = useStrategyStore((state) => state.edges);
+  const ethPrice = useStrategyStore((state) => state.ethPrice);
   const setSimulationResult = useStrategyStore((state) => state.setSimulationResult);
 
   useEffect(() => {
     if (blocks.length > 0) {
-      const result = simulateStrategy(blocks, edges);
+      const result = simulateStrategy(blocks, edges, ethPrice);
       setSimulationResult(result);
     } else {
       setSimulationResult(null);
     }
-  }, [blocks, edges, setSimulationResult]);
+  }, [blocks, edges, ethPrice, setSimulationResult]);
 
   return null;
 }
@@ -326,6 +327,32 @@ function Toolbar() {
 }
 
 // ============================================================================
+// Price Prefetcher
+// ============================================================================
+
+function PricePrefetcher() {
+  const setEthPrice = useStrategyStore((state) => state.setEthPrice);
+
+  // Fetch ETH price from CoinGecko
+  const { data: ethPriceData } = trpc.price.getPriceBySymbol.useQuery(
+    { symbol: "ETH" },
+    {
+      staleTime: 1000 * 60, // 1 minute cache
+      refetchInterval: 1000 * 60, // Refetch every minute
+      refetchOnWindowFocus: true,
+    }
+  );
+
+  useEffect(() => {
+    if (ethPriceData?.priceUsd) {
+      setEthPrice(ethPriceData.priceUsd);
+    }
+  }, [ethPriceData, setEthPrice]);
+
+  return null;
+}
+
+// ============================================================================
 // Yields Prefetcher
 // ============================================================================
 
@@ -367,7 +394,7 @@ export default function StrategiesPage() {
 
   if (!mounted) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gradient-to-b from-[#050508] via-[#0a0a0f] to-[#050508]">
+      <div className="h-[calc(100vh-4rem)] flex items-center justify-center bg-gradient-to-b from-[#050508] via-[#0a0a0f] to-[#050508]">
         {/* Aurora background */}
         <div className="absolute inset-0 aurora-bg opacity-30" />
 
@@ -425,7 +452,7 @@ export default function StrategiesPage() {
       initial="hidden"
       animate="visible"
       className={cn(
-        "h-screen flex flex-col bg-gradient-to-b from-[#050508] via-[#0a0a0f] to-[#050508]",
+        "h-[calc(100vh-4rem)] flex flex-col bg-gradient-to-b from-[#050508] via-[#0a0a0f] to-[#050508]",
         orbitron.variable,
         exo2.variable,
         firaCode.variable
@@ -433,6 +460,9 @@ export default function StrategiesPage() {
     >
       {/* Background simulation runner */}
       <SimulationRunner />
+
+      {/* Prefetch prices in background */}
+      <PricePrefetcher />
 
       {/* Prefetch yields in background */}
       <YieldsPrefetcher />
@@ -449,13 +479,13 @@ export default function StrategiesPage() {
             initial="hidden"
             animate="visible"
             exit={{ opacity: 0, x: -50 }}
-            className="flex-1 flex overflow-hidden relative"
+            className="flex-1 flex min-h-0 overflow-hidden relative"
           >
             {/* Sidebar */}
             <StrategySidebar />
 
             {/* Canvas */}
-            <motion.div variants={itemVariants} className="flex-1 relative">
+            <motion.div variants={itemVariants} className="flex-1 min-h-0 relative overflow-hidden">
               <StrategyCanvas />
 
               {/* Compact Results Bar */}
@@ -463,7 +493,15 @@ export default function StrategiesPage() {
             </motion.div>
           </motion.div>
         ) : (
-          <AnalysisView onBack={() => setCurrentView("canvas")} />
+          <motion.div
+            key="analysis"
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 50 }}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <AnalysisView onBack={() => setCurrentView("canvas")} />
+          </motion.div>
         )}
       </AnimatePresence>
 

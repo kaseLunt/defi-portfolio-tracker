@@ -59,6 +59,16 @@ export const STRATEGY_TEMPLATES: StrategyTemplate[] = [
     blocks: [],
     edges: [],
   },
+  {
+    id: "etherfi-loop",
+    name: "EtherFi Loop",
+    description: "Recursive leverage: Stake weETH → Lend → Borrow WETH → Loop",
+    riskLevel: "high",
+    estimatedApy: "8-15%",
+    tags: ["advanced", "leverage", "loop", "etherfi"],
+    blocks: [],
+    edges: [],
+  },
 ];
 
 // ============================================================================
@@ -301,6 +311,141 @@ export function generateLeveragedLST(): { blocks: StrategyBlock[]; edges: Strate
 }
 
 /**
+ * Generate blocks and edges for EtherFi Loop template
+ *
+ * Leverage loop shown as repeated iterations:
+ * Input → Stake → Collateral → Borrow → Stake → Collateral → Borrow → Stake → Collateral
+ *
+ * At 70% LTV, this approaches ~3.3x leverage.
+ */
+export function generateEtherFiLoop(): { blocks: StrategyBlock[]; edges: StrategyEdge[] } {
+  const blocks: StrategyBlock[] = [];
+  const edges: StrategyEdge[] = [];
+
+  // Horizontal spacing
+  const xStart = 50;
+  const xGap = 220;
+  let x = xStart;
+  const y = 200;
+
+  // Input block
+  blocks.push({
+    id: "template_input_1",
+    type: "input",
+    position: { x, y },
+    selectable: true,
+    data: {
+      type: "input",
+      asset: "ETH",
+      amount: 10,
+      label: "Input Capital",
+      isConfigured: true,
+      isValid: true,
+    } as InputBlockData,
+  });
+
+  let prevBlockId = "template_input_1";
+  let edgeCount = 0;
+
+  // Create 3 iterations of Stake → Collateral → Borrow
+  // (Last iteration ends with Collateral, no final borrow needed)
+  for (let i = 1; i <= 3; i++) {
+    const isLastIteration = i === 3;
+
+    // Stake block
+    x += xGap;
+    const stakeId = `template_stake_${i}`;
+    blocks.push({
+      id: stakeId,
+      type: "stake",
+      position: { x, y },
+      selectable: true,
+      data: {
+        type: "stake",
+        protocol: "etherfi",
+        inputAsset: "ETH",
+        outputAsset: "weETH",
+        apy: 3.2,
+        label: `Stake ${i}`,
+        isConfigured: true,
+        isValid: true,
+      } as StakeBlockData,
+    });
+    edges.push({
+      id: `template_edge_${++edgeCount}`,
+      source: prevBlockId,
+      target: stakeId,
+      type: "flow",
+      animated: true,
+      data: { flowPercent: 100 },
+    });
+    prevBlockId = stakeId;
+
+    // Collateral block
+    x += xGap;
+    const lendId = `template_lend_${i}`;
+    blocks.push({
+      id: lendId,
+      type: "lend",
+      position: { x, y },
+      selectable: true,
+      data: {
+        type: "lend",
+        protocol: "aave-v3",
+        chain: 1,
+        supplyApy: 0.1,
+        maxLtv: 72.5,
+        liquidationThreshold: 75,
+        label: `Collateral ${i}`,
+        isConfigured: true,
+        isValid: true,
+      } as LendBlockData,
+    });
+    edges.push({
+      id: `template_edge_${++edgeCount}`,
+      source: prevBlockId,
+      target: lendId,
+      type: "flow",
+      animated: true,
+      data: { flowPercent: 100 },
+    });
+    prevBlockId = lendId;
+
+    // Borrow block (skip on last iteration)
+    if (!isLastIteration) {
+      x += xGap;
+      const borrowId = `template_borrow_${i}`;
+      blocks.push({
+        id: borrowId,
+        type: "borrow",
+        position: { x, y },
+        selectable: true,
+        data: {
+          type: "borrow",
+          asset: "ETH",
+          ltvPercent: 70,
+          borrowApy: 2.5,
+          label: `Borrow ${i}`,
+          isConfigured: true,
+          isValid: true,
+        } as BorrowBlockData,
+      });
+      edges.push({
+        id: `template_edge_${++edgeCount}`,
+        source: prevBlockId,
+        target: borrowId,
+        type: "flow",
+        animated: true,
+        data: { flowPercent: 100 },
+      });
+      prevBlockId = borrowId;
+    }
+  }
+
+  return { blocks, edges };
+}
+
+/**
  * Generate blocks and edges for Stablecoin Yield template
  */
 export function generateStablecoinYield(): { blocks: StrategyBlock[]; edges: StrategyEdge[] } {
@@ -365,6 +510,8 @@ export function loadTemplate(templateId: string): { blocks: StrategyBlock[]; edg
       return generateLeveragedLST();
     case "stablecoin-yield":
       return generateStablecoinYield();
+    case "etherfi-loop":
+      return generateEtherFiLoop();
     default:
       return null;
   }
