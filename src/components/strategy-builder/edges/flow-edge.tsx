@@ -317,29 +317,46 @@ function FlowEdgeComponent({
     return 3;
   }, [flowPercent]);
 
-  // Edge colors based on flow state
+  // Edge colors based on flow state - Cyberpunk neon
   const edgeColor = isPartialFlow
     ? "#F59E0B" // Amber for partial flow
-    : "#735CFF"; // Purple for normal flow
+    : "#00FFD0"; // Cyan for normal flow (cyberpunk)
 
   const glowColor = isPartialFlow
-    ? "rgba(245, 158, 11, 0.4)"
-    : "rgba(115, 92, 255, 0.4)";
+    ? "rgba(245, 158, 11, 0.5)"
+    : "rgba(0, 255, 208, 0.4)";
+
+  const secondaryGlow = isPartialFlow
+    ? "rgba(245, 158, 11, 0.2)"
+    : "rgba(168, 85, 247, 0.3)";
 
   const uniqueId = useId();
 
   return (
     <>
-      {/* Glow/trail effect underneath */}
+      {/* Outer neon glow */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke={secondaryGlow}
+        strokeWidth={isHovered ? 20 : 14}
+        strokeLinecap="round"
+        style={{
+          filter: "blur(8px)",
+          transition: "all 0.3s ease",
+        }}
+      />
+
+      {/* Inner glow/trail effect */}
       <path
         d={edgePath}
         fill="none"
         stroke={glowColor}
-        strokeWidth={isHovered ? 12 : 8}
+        strokeWidth={isHovered ? 10 : 6}
         strokeLinecap="round"
         style={{
-          filter: "blur(4px)",
-          transition: "all 0.2s ease",
+          filter: "blur(3px)",
+          transition: "all 0.3s ease",
         }}
       />
 
@@ -415,19 +432,21 @@ function FlowEdgeComponent({
           <div
             onClick={handleEdgeClick}
             className={`
-              px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer
-              transition-all duration-200 shadow-lg
+              relative px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer overflow-hidden
+              transition-all duration-300
               ${isPartialFlow
-                ? "bg-[#1a1a24] text-amber-400 border border-amber-500/50"
-                : "bg-[#1a1a24] text-purple-300 border border-purple-500/40"
+                ? "bg-gradient-to-r from-[#1a1a24] to-[#201810] text-amber-400 border border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.2)]"
+                : "bg-gradient-to-r from-[#1a1a24] to-[#101520] text-cyan-300 border border-cyan-500/40 shadow-[0_0_15px_rgba(0,255,208,0.15)]"
               }
-              ${(isHovered || isLabelHovered || showPopover) ? "scale-105 ring-2 ring-purple-500/30" : ""}
-              ${!isHovered && !isLabelHovered && !showPopover && !isPartialFlow && !selected ? "opacity-70" : "opacity-100"}
+              ${(isHovered || isLabelHovered || showPopover) ? "scale-110 shadow-[0_0_25px_rgba(168,85,247,0.3)]" : ""}
+              ${!isHovered && !isLabelHovered && !showPopover && !isPartialFlow && !selected ? "opacity-80" : "opacity-100"}
             `}
           >
-            <span className="flex items-center gap-2">
+            {/* Holographic shimmer on hover */}
+            <div className={`absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full ${(isHovered || isLabelHovered) ? "translate-x-full transition-transform duration-700" : ""}`} />
+            <span className="relative flex items-center gap-2">
               <span className="font-semibold">{formatFlowDisplay()} {assetSymbol}</span>
-              <span className={`text-[10px] ${isPartialFlow ? "text-amber-500/70" : "text-white/40"}`}>
+              <span className={`text-[10px] ${isPartialFlow ? "text-amber-500/70" : "text-cyan-500/60"}`}>
                 {Math.round(flowPercent)}%
               </span>
             </span>

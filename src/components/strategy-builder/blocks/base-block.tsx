@@ -39,42 +39,47 @@ export interface BaseBlockProps {
 
 const blockColors: Record<
   BaseBlockProps["blockType"],
-  { border: string; bg: string; glow: string; glowRgb: string; icon: string }
+  { border: string; bg: string; glow: string; glowRgb: string; icon: string; gradient: string }
 > = {
   input: {
-    border: "border-blue-500/50",
-    bg: "bg-blue-500/10",
-    glow: "shadow-blue-500/20",
-    glowRgb: "59, 130, 246", // blue-500
+    border: "border-blue-500/40",
+    bg: "bg-gradient-to-br from-blue-500/15 to-blue-600/5",
+    glow: "shadow-blue-500/30",
+    glowRgb: "59, 130, 246",
     icon: "text-blue-400",
+    gradient: "from-blue-500/20 via-transparent to-cyan-500/10",
   },
   stake: {
-    border: "border-purple-500/50",
-    bg: "bg-purple-500/10",
-    glow: "shadow-purple-500/20",
-    glowRgb: "168, 85, 247", // purple-500
+    border: "border-purple-500/40",
+    bg: "bg-gradient-to-br from-purple-500/15 to-violet-600/5",
+    glow: "shadow-purple-500/30",
+    glowRgb: "168, 85, 247",
     icon: "text-purple-400",
+    gradient: "from-purple-500/20 via-transparent to-pink-500/10",
   },
   lend: {
-    border: "border-green-500/50",
-    bg: "bg-green-500/10",
-    glow: "shadow-green-500/20",
-    glowRgb: "34, 197, 94", // green-500
-    icon: "text-green-400",
+    border: "border-emerald-500/40",
+    bg: "bg-gradient-to-br from-emerald-500/15 to-green-600/5",
+    glow: "shadow-emerald-500/30",
+    glowRgb: "16, 185, 129",
+    icon: "text-emerald-400",
+    gradient: "from-emerald-500/20 via-transparent to-cyan-500/10",
   },
   borrow: {
-    border: "border-amber-500/50",
-    bg: "bg-amber-500/10",
-    glow: "shadow-amber-500/20",
-    glowRgb: "245, 158, 11", // amber-500
+    border: "border-amber-500/40",
+    bg: "bg-gradient-to-br from-amber-500/15 to-orange-600/5",
+    glow: "shadow-amber-500/30",
+    glowRgb: "245, 158, 11",
     icon: "text-amber-400",
+    gradient: "from-amber-500/20 via-transparent to-rose-500/10",
   },
   swap: {
-    border: "border-cyan-500/50",
-    bg: "bg-cyan-500/10",
-    glow: "shadow-cyan-500/20",
-    glowRgb: "6, 182, 212", // cyan-500
+    border: "border-cyan-500/40",
+    bg: "bg-gradient-to-br from-cyan-500/15 to-teal-600/5",
+    glow: "shadow-cyan-500/30",
+    glowRgb: "6, 182, 212",
     icon: "text-cyan-400",
+    gradient: "from-cyan-500/20 via-transparent to-blue-500/10",
   },
 };
 
@@ -132,40 +137,49 @@ export function BaseBlock({
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
       transition={{
-        duration: 0.2,
+        duration: 0.3,
         ease: [0.23, 1, 0.32, 1],
       }}
-      whileHover={hasAnimated ? { scale: 1.01, transition: { duration: 0.15 } } : undefined}
+      whileHover={hasAnimated ? { scale: 1.02, y: -2, transition: { duration: 0.2 } } : undefined}
       className={cn(
         // Base styles - explicit width helps React Flow with selection hit testing
-        "relative w-[220px] rounded-xl border backdrop-blur-sm",
-        "bg-[#12121a]/90 transition-all duration-200",
+        "relative w-[220px] rounded-xl border",
+        "glass-depth-2 transition-all duration-300",
+        // Holographic gradient overlay
+        "bg-gradient-to-br from-[#12121a]/95 via-[#0d0d14]/90 to-[#12121a]/95",
         // Border color based on type
         colors.border,
-        // Glow effect on hover
-        "hover:shadow-lg",
-        blockType === "input" && "hover:shadow-blue-500/20",
-        blockType === "stake" && "hover:shadow-purple-500/20",
-        blockType === "lend" && "hover:shadow-green-500/20",
-        blockType === "borrow" && "hover:shadow-amber-500/20",
-        blockType === "swap" && "hover:shadow-cyan-500/20",
-        // Selected state
+        // Premium hover glow effect
+        "hover:shadow-xl",
+        blockType === "input" && "hover:shadow-[0_0_30px_rgba(59,130,246,0.2)] hover:border-blue-500/60",
+        blockType === "stake" && "hover:shadow-[0_0_30px_rgba(168,85,247,0.2)] hover:border-purple-500/60",
+        blockType === "lend" && "hover:shadow-[0_0_30px_rgba(16,185,129,0.2)] hover:border-emerald-500/60",
+        blockType === "borrow" && "hover:shadow-[0_0_30px_rgba(245,158,11,0.2)] hover:border-amber-500/60",
+        blockType === "swap" && "hover:shadow-[0_0_30px_rgba(6,182,212,0.2)] hover:border-cyan-500/60",
+        // Selected state with neon glow
         selected && [
           "ring-2 ring-offset-2 ring-offset-[#0a0a0f]",
           "shadow-xl",
-          blockType === "input" && "ring-blue-500 shadow-blue-500/30",
-          blockType === "stake" && "ring-purple-500 shadow-purple-500/30",
-          blockType === "lend" && "ring-green-500 shadow-green-500/30",
-          blockType === "borrow" && "ring-amber-500 shadow-amber-500/30",
-          blockType === "swap" && "ring-cyan-500 shadow-cyan-500/30",
+          blockType === "input" && "ring-blue-500 shadow-[0_0_40px_rgba(59,130,246,0.35)]",
+          blockType === "stake" && "ring-purple-500 shadow-[0_0_40px_rgba(168,85,247,0.35)]",
+          blockType === "lend" && "ring-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.35)]",
+          blockType === "borrow" && "ring-amber-500 shadow-[0_0_40px_rgba(245,158,11,0.35)]",
+          blockType === "swap" && "ring-cyan-500 shadow-[0_0_40px_rgba(6,182,212,0.35)]",
         ],
         // Invalid state
         !isValid && "border-red-500/50 ring-red-500/30"
       )}
     >
+      {/* Holographic gradient overlay on hover */}
+      <div
+        className={cn(
+          "absolute inset-0 rounded-xl opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none",
+          `bg-gradient-to-br ${colors.gradient}`
+        )}
+      />
       {/* Input Handle */}
       {hasInput && (
         <Handle

@@ -30,19 +30,26 @@ import { useStrategyStore } from "@/lib/strategy/store";
 import { simulateStrategy } from "@/lib/strategy/simulation";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
-import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Orbitron, Exo_2, Fira_Code } from "next/font/google";
 
 // ============================================================================
-// Custom Fonts
+// Custom Fonts - Cyberpunk Aesthetic
 // ============================================================================
 
-const spaceGrotesk = Space_Grotesk({
+const orbitron = Orbitron({
   subsets: ["latin"],
   variable: "--font-display",
   display: "swap",
+  weight: ["400", "500", "600", "700", "800", "900"],
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const exo2 = Exo_2({
+  subsets: ["latin"],
+  variable: "--font-body",
+  display: "swap",
+});
+
+const firaCode = Fira_Code({
   subsets: ["latin"],
   variable: "--font-mono",
   display: "swap",
@@ -101,9 +108,12 @@ function CompactResultsBar({ onViewDetails }: { onViewDetails: () => void }) {
       initial={{ y: 50, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       className="absolute bottom-4 left-4 right-4 flex items-center justify-between
-                 px-5 py-3 rounded-2xl bg-[#0a0a0f]/90 backdrop-blur-xl
-                 border border-purple-500/20 shadow-xl shadow-purple-500/10"
+                 px-6 py-4 rounded-2xl glass-depth-3
+                 border border-purple-500/20
+                 shadow-[0_0_40px_rgba(120,0,255,0.15),inset_0_1px_0_rgba(255,255,255,0.05)]"
     >
+      {/* Holographic top border accent */}
+      <div className="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-purple-500/50 to-transparent" />
       {/* Key Metrics */}
       <div className="flex items-center gap-6">
         {/* Net APY */}
@@ -111,7 +121,7 @@ function CompactResultsBar({ onViewDetails }: { onViewDetails: () => void }) {
           <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           <div>
             <div className="text-[10px] text-white/40 uppercase tracking-wider">Net APY</div>
-            <div className={cn("text-xl font-bold text-purple-400", jetbrainsMono.className)}>
+            <div className={cn("text-xl font-bold text-purple-400", firaCode.className)}>
               {result.netApy.toFixed(2)}%
             </div>
           </div>
@@ -123,7 +133,7 @@ function CompactResultsBar({ onViewDetails }: { onViewDetails: () => void }) {
         <div>
           <div className="text-[10px] text-white/40 uppercase tracking-wider">1Y Projection</div>
           <div className="flex items-baseline gap-2">
-            <span className={cn("text-lg font-bold text-green-400", jetbrainsMono.className)}>
+            <span className={cn("text-lg font-bold text-green-400", firaCode.className)}>
               ${result.projectedValue1Y.toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </span>
             <span className="text-xs text-green-400/60">
@@ -144,7 +154,7 @@ function CompactResultsBar({ onViewDetails }: { onViewDetails: () => void }) {
           </div>
           {result.leverage > 1.1 && (
             <div className="px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-500/20">
-              <div className={cn("text-sm font-bold text-amber-400", jetbrainsMono.className)}>
+              <div className={cn("text-sm font-bold text-amber-400", firaCode.className)}>
                 {result.leverage.toFixed(1)}x
               </div>
             </div>
@@ -163,17 +173,25 @@ function CompactResultsBar({ onViewDetails }: { onViewDetails: () => void }) {
         )}
       </div>
 
-      {/* View Details Button */}
+      {/* View Details Button - Cyberpunk Style */}
       <motion.button
         onClick={onViewDetails}
-        whileHover={{ scale: 1.02 }}
+        whileHover={{ scale: 1.03, y: -1 }}
         whileTap={{ scale: 0.98 }}
-        className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium
-                   bg-gradient-to-r from-purple-500 to-pink-500 text-white
-                   shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-shadow"
+        className="relative flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium overflow-hidden
+                   bg-gradient-to-r from-purple-500 via-violet-500 to-purple-500 text-white
+                   shadow-[0_0_20px_rgba(168,85,247,0.3)] hover:shadow-[0_0_30px_rgba(168,85,247,0.5)]
+                   transition-all duration-300 group"
       >
-        <TrendingUp className="w-4 h-4" />
-        <span>View Analysis</span>
+        {/* Shimmer effect */}
+        <motion.div
+          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+          initial={{ x: "-100%" }}
+          whileHover={{ x: "100%" }}
+          transition={{ duration: 0.5 }}
+        />
+        <TrendingUp className="w-4 h-4 relative z-10 group-hover:rotate-12 transition-transform" />
+        <span className={cn("relative z-10 tracking-wide", orbitron.className)}>View Analysis</span>
       </motion.button>
     </motion.div>
   );
@@ -229,64 +247,97 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="flex-1 overflow-y-auto bg-[#0a0a0f]"
+      className="flex-1 overflow-y-auto bg-gradient-to-b from-[#050508] via-[#0a0a0f] to-[#050508]"
     >
+      {/* Ambient background effects */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute inset-0 aurora-bg opacity-40" />
+        <div className="absolute inset-0 data-stream-bg opacity-20" />
+      </div>
+
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-[#0a0a0f]/95 backdrop-blur-xl border-b border-white/5">
+      <div className="sticky top-0 z-10 glass-depth-3 border-b border-purple-500/10">
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent" />
         <div className="flex items-center justify-between px-8 py-4">
           <div className="flex items-center gap-4">
             <motion.button
               onClick={onBack}
-              whileHover={{ scale: 1.05 }}
+              whileHover={{ scale: 1.05, x: -2 }}
               whileTap={{ scale: 0.95 }}
-              className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+              className="p-2 rounded-lg bg-white/5 hover:bg-purple-500/20 text-white/60 hover:text-purple-400 transition-all border border-transparent hover:border-purple-500/30"
             >
               ←
             </motion.button>
             <div>
-              <h1 className={cn("text-2xl font-bold text-white", spaceGrotesk.className)}>
+              <h1 className={cn("text-2xl font-bold tracking-wider uppercase bg-gradient-to-r from-white via-purple-300 to-cyan-400 bg-clip-text text-transparent", orbitron.className)}>
                 Strategy Analysis
               </h1>
-              <p className="text-sm text-white/50">Detailed breakdown of your DeFi strategy</p>
+              <p className={cn("text-sm text-white/40", exo2.className)}>Comprehensive yield strategy breakdown</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className={cn(
-              "px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30",
-              "text-2xl font-bold text-purple-400",
-              jetbrainsMono.className
-            )}>
-              {result.netApy.toFixed(2)}% APY
-            </div>
+            <motion.div
+              className={cn(
+                "relative px-5 py-2.5 rounded-xl overflow-hidden",
+                "bg-gradient-to-r from-purple-500/15 to-cyan-500/15",
+                "border border-purple-500/30",
+                "shadow-[0_0_30px_rgba(168,85,247,0.2)]"
+              )}
+              animate={{ boxShadow: ["0 0 30px rgba(168,85,247,0.2)", "0 0 40px rgba(168,85,247,0.3)", "0 0 30px rgba(168,85,247,0.2)"] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              {/* Holographic shimmer */}
+              <motion.div
+                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
+                animate={{ x: ["-100%", "200%"] }}
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+              />
+              <span className={cn("relative text-2xl font-bold text-purple-400", firaCode.className)}>
+                {result.netApy.toFixed(2)}% APY
+              </span>
+            </motion.div>
           </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="px-8 py-6 space-y-6">
-        {/* Hero Metrics */}
+      <div className="relative px-8 py-6 space-y-6">
+        {/* Hero Metrics - Holographic Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="p-5 rounded-2xl bg-gradient-to-br from-purple-500/20 to-purple-500/5 border border-purple-500/30 shadow-lg shadow-purple-500/10"
+            className="relative p-5 rounded-2xl overflow-hidden glass-depth-2 border border-purple-500/30 shadow-[0_0_30px_rgba(168,85,247,0.15)]"
           >
-            <div className="text-xs text-white/50 mb-2">Net APY</div>
-            <div className={cn("text-4xl font-bold text-purple-400", jetbrainsMono.className)}>
-              {result.netApy.toFixed(2)}%
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/15 to-transparent" />
+            <div className="relative">
+              <div className={cn("text-xs text-purple-300/70 mb-2 uppercase tracking-wider", exo2.className)}>Net APY</div>
+              <div className={cn("text-4xl font-bold text-purple-400", firaCode.className)}>
+                {result.netApy.toFixed(2)}%
+              </div>
             </div>
+            {/* Animated accent */}
+            <motion.div
+              className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500"
+              animate={{ backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"] }}
+              transition={{ duration: 3, repeat: Infinity }}
+              style={{ backgroundSize: "200% 100%" }}
+            />
           </motion.div>
 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.15 }}
-            className="p-5 rounded-2xl bg-gradient-to-br from-blue-500/20 to-blue-500/5 border border-blue-500/30"
+            className="relative p-5 rounded-2xl overflow-hidden glass-depth-2 border border-blue-500/30"
           >
-            <div className="text-xs text-white/50 mb-2">Initial Value</div>
-            <div className={cn("text-3xl font-bold text-blue-400", jetbrainsMono.className)}>
-              ${result.initialValue.toLocaleString()}
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent" />
+            <div className="relative">
+              <div className={cn("text-xs text-blue-300/70 mb-2 uppercase tracking-wider", exo2.className)}>Initial Value</div>
+              <div className={cn("text-3xl font-bold text-blue-400", firaCode.className)}>
+                ${result.initialValue.toLocaleString()}
+              </div>
             </div>
           </motion.div>
 
@@ -294,14 +345,17 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="p-5 rounded-2xl bg-gradient-to-br from-green-500/20 to-green-500/5 border border-green-500/30 shadow-lg shadow-green-500/10"
+            className="relative p-5 rounded-2xl overflow-hidden glass-depth-2 border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.15)]"
           >
-            <div className="text-xs text-white/50 mb-2">1Y Projected</div>
-            <div className={cn("text-3xl font-bold text-green-400", jetbrainsMono.className)}>
-              ${result.projectedValue1Y.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </div>
-            <div className="text-sm text-green-400/60 mt-1">
-              +${(result.projectedValue1Y - result.initialValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent" />
+            <div className="relative">
+              <div className={cn("text-xs text-emerald-300/70 mb-2 uppercase tracking-wider", exo2.className)}>1Y Projected</div>
+              <div className={cn("text-3xl font-bold text-emerald-400", firaCode.className)}>
+                ${result.projectedValue1Y.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
+              <div className="text-sm text-emerald-400/60 mt-1">
+                +${(result.projectedValue1Y - result.initialValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
             </div>
           </motion.div>
 
@@ -309,11 +363,13 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.25 }}
-            className={cn("p-5 rounded-2xl bg-[#12121a] border border-white/10 shadow-lg", getRiskGlow(result.riskLevel))}
+            className={cn("relative p-5 rounded-2xl overflow-hidden glass-depth-2 border border-white/10", getRiskGlow(result.riskLevel))}
           >
-            <div className="text-xs text-white/50 mb-2">Risk Level</div>
-            <div className={cn("text-2xl font-bold capitalize", getRiskColor(result.riskLevel), spaceGrotesk.className)}>
-              {result.riskLevel}
+            <div className="relative">
+              <div className={cn("text-xs text-white/50 mb-2 uppercase tracking-wider", exo2.className)}>Risk Level</div>
+              <div className={cn("text-2xl font-bold capitalize tracking-wider", getRiskColor(result.riskLevel), orbitron.className)}>
+                {result.riskLevel}
+              </div>
             </div>
           </motion.div>
 
@@ -321,11 +377,13 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="p-5 rounded-2xl bg-[#12121a] border border-white/10"
+            className="relative p-5 rounded-2xl overflow-hidden glass-depth-2 border border-white/10"
           >
-            <div className="text-xs text-white/50 mb-2">Est. Gas Cost</div>
-            <div className={cn("text-2xl font-bold text-white", jetbrainsMono.className)}>
-              ${result.gasCostUsd}
+            <div className="relative">
+              <div className={cn("text-xs text-white/50 mb-2 uppercase tracking-wider", exo2.className)}>Est. Gas Cost</div>
+              <div className={cn("text-2xl font-bold text-white/90", firaCode.className)}>
+                ${result.gasCostUsd}
+              </div>
             </div>
           </motion.div>
 
@@ -333,11 +391,13 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.35 }}
-            className="p-5 rounded-2xl bg-[#12121a] border border-white/10"
+            className="relative p-5 rounded-2xl overflow-hidden glass-depth-2 border border-white/10"
           >
-            <div className="text-xs text-white/50 mb-2">Leverage</div>
-            <div className={cn("text-2xl font-bold text-white", jetbrainsMono.className)}>
-              {result.leverage.toFixed(2)}x
+            <div className="relative">
+              <div className={cn("text-xs text-white/50 mb-2 uppercase tracking-wider", exo2.className)}>Leverage</div>
+              <div className={cn("text-2xl font-bold text-white/90", firaCode.className)}>
+                {result.leverage.toFixed(2)}x
+              </div>
             </div>
           </motion.div>
         </div>
@@ -350,11 +410,13 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
-              className="p-6 rounded-2xl bg-gradient-to-br from-[#12121a] to-[#0d0d14] border border-white/10"
+              className="relative p-6 rounded-2xl overflow-hidden glass-depth-2 border border-purple-500/20"
             >
+              {/* Top accent line */}
+              <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-purple-500/50 to-transparent" />
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
-                  <h2 className={cn("text-lg font-semibold text-white", spaceGrotesk.className)}>
+                  <h2 className={cn("text-lg font-semibold text-white", orbitron.className)}>
                     APY Breakdown
                   </h2>
                   {result.leverage > 1.1 && (
@@ -363,7 +425,7 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
                     </div>
                   )}
                 </div>
-                <div className={cn("text-sm px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 font-semibold", jetbrainsMono.className)}>
+                <div className={cn("text-sm px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 font-semibold", firaCode.className)}>
                   {result.netApy >= 0 ? "+" : ""}{result.netApy.toFixed(2)}% Net
                 </div>
               </div>
@@ -433,7 +495,7 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
                               </span>
                               <span className={cn(
                                 "text-sm font-bold tabular-nums min-w-[70px] text-right",
-                                jetbrainsMono.className,
+                                firaCode.className,
                                 isPositive ? "text-emerald-400" : "text-red-400"
                               )}>
                                 {isPositive ? "+" : ""}{contribution.toFixed(2)}%
@@ -466,7 +528,7 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
                       </div>
                       <span className={cn(
                         "text-xl font-bold",
-                        jetbrainsMono.className,
+                        firaCode.className,
                         result.netApy >= 0 ? "text-emerald-400" : "text-red-400"
                       )}>
                         {result.netApy >= 0 ? "+" : ""}{result.netApy.toFixed(2)}%
@@ -482,13 +544,15 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.45 }}
-              className="p-6 rounded-2xl bg-gradient-to-br from-[#12121a] to-[#0d0d14] border border-white/10"
+              className="relative p-6 rounded-2xl overflow-hidden glass-depth-2 border border-cyan-500/20"
             >
+              {/* Top accent line */}
+              <div className="absolute top-0 left-6 right-6 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" />
               <div className="flex items-center justify-between mb-6">
-                <h2 className={cn("text-lg font-semibold text-white", spaceGrotesk.className)}>
+                <h2 className={cn("text-lg font-semibold text-white", orbitron.className)}>
                   1 Year Projection
                 </h2>
-                <div className={cn("text-sm px-3 py-1.5 rounded-lg bg-green-500/20 text-green-300 font-semibold", jetbrainsMono.className)}>
+                <div className={cn("text-sm px-3 py-1.5 rounded-lg bg-green-500/20 text-green-300 font-semibold", firaCode.className)}>
                   +${(result.projectedValue1Y - result.initialValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </div>
               </div>
@@ -498,7 +562,7 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
                 <div className="flex items-center gap-4">
                   <div className="w-24 text-right">
                     <div className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Start</div>
-                    <div className={cn("text-2xl font-bold text-blue-400", jetbrainsMono.className)}>
+                    <div className={cn("text-2xl font-bold text-blue-400", firaCode.className)}>
                       ${(result.initialValue / 1000).toFixed(0)}K
                     </div>
                   </div>
@@ -511,7 +575,7 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
                 <div className="flex items-center gap-4">
                   <div className="w-24 text-right">
                     <div className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Yield</div>
-                    <div className={cn("text-2xl font-bold text-emerald-400", jetbrainsMono.className)}>
+                    <div className={cn("text-2xl font-bold text-emerald-400", firaCode.className)}>
                       +${((result.projectedValue1Y - result.initialValue + result.gasCostUsd + result.protocolFees) / 1000).toFixed(1)}K
                     </div>
                   </div>
@@ -529,7 +593,7 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
                 <div className="flex items-center gap-4">
                   <div className="w-24 text-right">
                     <div className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Costs</div>
-                    <div className={cn("text-2xl font-bold text-red-400", jetbrainsMono.className)}>
+                    <div className={cn("text-2xl font-bold text-red-400", firaCode.className)}>
                       -${(result.gasCostUsd + result.protocolFees).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </div>
                   </div>
@@ -545,13 +609,13 @@ function AnalysisView({ onBack }: { onBack: () => void }) {
                 <div className="flex items-center gap-4">
                   <div className="w-24 text-right">
                     <div className="text-[10px] text-white/40 uppercase tracking-wider mb-1">End</div>
-                    <div className={cn("text-2xl font-bold text-green-400", jetbrainsMono.className)}>
+                    <div className={cn("text-2xl font-bold text-green-400", firaCode.className)}>
                       ${(result.projectedValue1Y / 1000).toFixed(0)}K
                     </div>
                   </div>
                   <div className="flex-1 h-14 rounded-xl bg-gradient-to-r from-green-500/40 to-green-500/20 border-2 border-green-500/40 flex items-center justify-between px-4 shadow-lg shadow-green-500/20">
                     <span className="text-sm font-medium text-green-300">Projected Value</span>
-                    <span className={cn("text-lg font-bold text-green-400", jetbrainsMono.className)}>
+                    <span className={cn("text-lg font-bold text-green-400", firaCode.className)}>
                       {result.netApy.toFixed(2)}% APY
                     </span>
                   </div>
@@ -624,32 +688,40 @@ function Toolbar() {
   return (
     <motion.div
       variants={itemVariants}
-      className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#0a0a0f]/80 backdrop-blur-xl"
+      className="relative flex items-center justify-between px-6 py-4 border-b border-purple-500/10 glass-depth-2"
     >
-      {/* Left - Title with gradient */}
+      {/* Holographic accent line */}
+      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/40 to-transparent" />
+
+      {/* Left - Title with cyberpunk styling */}
       <div className="flex items-center gap-4">
         <motion.div
-          className="relative p-3 rounded-xl bg-gradient-to-br from-purple-500/30 to-pink-500/20 border border-purple-500/30"
+          className="relative p-3 rounded-xl bg-gradient-to-br from-purple-500/20 to-violet-600/10 border border-purple-500/30 overflow-hidden"
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >
-          <Zap className="w-6 h-6 text-purple-400" />
+          <Zap className="w-6 h-6 text-purple-400 relative z-10" />
+          {/* Animated pulse */}
           <motion.div
-            className="absolute inset-0 rounded-xl bg-purple-500/20"
-            animate={{ opacity: [0.5, 0.2, 0.5] }}
+            className="absolute inset-0 rounded-xl"
+            style={{
+              background: "radial-gradient(circle at center, rgba(168,85,247,0.3), transparent 70%)"
+            }}
+            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
             transition={{ duration: 2, repeat: Infinity }}
           />
         </motion.div>
         <div>
           <h1 className={cn(
-            "text-xl font-bold bg-gradient-to-r from-white via-purple-200 to-purple-400 bg-clip-text text-transparent",
-            spaceGrotesk.className
+            "text-xl font-bold tracking-wider uppercase",
+            "bg-gradient-to-r from-white via-purple-300 to-cyan-400 bg-clip-text text-transparent",
+            orbitron.className
           )}>
             Strategy Builder
           </h1>
-          <p className="text-xs text-white/50 flex items-center gap-1.5">
+          <p className={cn("text-xs text-white/40 flex items-center gap-1.5", exo2.className)}>
             <Sparkles className="w-3 h-3 text-purple-400" />
-            Build and simulate DeFi yield strategies
+            DeFi yield strategy composition engine
           </p>
         </div>
       </div>
@@ -752,38 +824,52 @@ export default function StrategiesPage() {
 
   if (!mounted) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#0a0a0f]">
+      <div className="h-screen flex items-center justify-center bg-gradient-to-b from-[#050508] via-[#0a0a0f] to-[#050508]">
+        {/* Aurora background */}
+        <div className="absolute inset-0 aurora-bg opacity-30" />
+
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="flex flex-col items-center gap-4"
+          className="relative flex flex-col items-center gap-6"
         >
-          {/* Animated loading spinner */}
-          <div className="relative">
+          {/* Holographic loading orb */}
+          <div className="relative w-24 h-24">
+            {/* Outer rotating ring */}
             <motion.div
-              className="w-16 h-16 rounded-full border-2 border-purple-500/30"
+              className="absolute inset-0 rounded-full"
+              style={{
+                background: "conic-gradient(from 0deg, rgba(168,85,247,0.5), rgba(6,182,212,0.5), rgba(236,72,153,0.5), rgba(168,85,247,0.5))",
+              }}
               animate={{ rotate: 360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
             />
-            <motion.div
-              className="absolute inset-0 w-16 h-16 rounded-full border-t-2 border-purple-500"
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            />
-            <Zap className="absolute inset-0 m-auto w-6 h-6 text-purple-400" />
-          </div>
-          <div className={cn("text-white/70 font-medium", spaceGrotesk.className)}>
-            Loading Strategy Builder
-          </div>
-          <div className="flex gap-1">
-            {[0, 1, 2].map((i) => (
+            {/* Inner core */}
+            <div className="absolute inset-2 rounded-full bg-[#0a0a0f] flex items-center justify-center">
               <motion.div
-                key={i}
-                className="w-2 h-2 rounded-full bg-purple-500"
-                animate={{ opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-              />
-            ))}
+                animate={{ scale: [1, 1.2, 1], opacity: [0.8, 1, 0.8] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              >
+                <Zap className="w-8 h-8 text-purple-400" />
+              </motion.div>
+            </div>
+            {/* Glow effect */}
+            <div className="absolute inset-0 rounded-full blur-xl bg-purple-500/20" />
+          </div>
+
+          <div className={cn("text-white/80 font-medium tracking-widest uppercase", orbitron.className)}>
+            Initializing
+          </div>
+
+          {/* Loading bar */}
+          <div className="w-48 h-1 rounded-full bg-white/10 overflow-hidden">
+            <motion.div
+              className="h-full bg-gradient-to-r from-purple-500 via-cyan-500 to-purple-500"
+              initial={{ x: "-100%" }}
+              animate={{ x: "100%" }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+              style={{ width: "100%" }}
+            />
           </div>
         </motion.div>
       </div>
@@ -796,9 +882,10 @@ export default function StrategiesPage() {
       initial="hidden"
       animate="visible"
       className={cn(
-        "h-screen flex flex-col bg-[#0a0a0f]",
-        spaceGrotesk.variable,
-        jetbrainsMono.variable
+        "h-screen flex flex-col bg-gradient-to-b from-[#050508] via-[#0a0a0f] to-[#050508]",
+        orbitron.variable,
+        exo2.variable,
+        firaCode.variable
       )}
     >
       {/* Background simulation runner */}

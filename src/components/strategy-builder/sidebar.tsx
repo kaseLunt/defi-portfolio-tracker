@@ -51,40 +51,40 @@ const BLOCKS: BlockDefinition[] = [
     label: "Input",
     description: "Starting capital",
     icon: <Wallet className="w-5 h-5" />,
-    color: "bg-blue-500/20 text-blue-400",
-    borderColor: "border-blue-500/30 hover:border-blue-500/60",
+    color: "bg-gradient-to-br from-blue-500/25 to-blue-600/10 text-blue-400",
+    borderColor: "border-blue-500/30 hover:border-blue-400/60 hover:shadow-[0_0_20px_rgba(59,130,246,0.2)]",
   },
   {
     type: "stake",
     label: "Stake",
     description: "LST staking",
     icon: <Layers className="w-5 h-5" />,
-    color: "bg-purple-500/20 text-purple-400",
-    borderColor: "border-purple-500/30 hover:border-purple-500/60",
+    color: "bg-gradient-to-br from-purple-500/25 to-violet-600/10 text-purple-400",
+    borderColor: "border-purple-500/30 hover:border-purple-400/60 hover:shadow-[0_0_20px_rgba(168,85,247,0.2)]",
   },
   {
     type: "lend",
     label: "Lend",
     description: "Supply to protocol",
     icon: <PiggyBank className="w-5 h-5" />,
-    color: "bg-green-500/20 text-green-400",
-    borderColor: "border-green-500/30 hover:border-green-500/60",
+    color: "bg-gradient-to-br from-emerald-500/25 to-green-600/10 text-emerald-400",
+    borderColor: "border-emerald-500/30 hover:border-emerald-400/60 hover:shadow-[0_0_20px_rgba(16,185,129,0.2)]",
   },
   {
     type: "borrow",
     label: "Borrow",
     description: "Against collateral",
     icon: <HandCoins className="w-5 h-5" />,
-    color: "bg-amber-500/20 text-amber-400",
-    borderColor: "border-amber-500/30 hover:border-amber-500/60",
+    color: "bg-gradient-to-br from-amber-500/25 to-orange-600/10 text-amber-400",
+    borderColor: "border-amber-500/30 hover:border-amber-400/60 hover:shadow-[0_0_20px_rgba(245,158,11,0.2)]",
   },
   {
     type: "swap",
     label: "Swap",
     description: "DEX exchange",
     icon: <ArrowLeftRight className="w-5 h-5" />,
-    color: "bg-cyan-500/20 text-cyan-400",
-    borderColor: "border-cyan-500/30 hover:border-cyan-500/60",
+    color: "bg-gradient-to-br from-cyan-500/25 to-teal-600/10 text-cyan-400",
+    borderColor: "border-cyan-500/30 hover:border-cyan-400/60 hover:shadow-[0_0_20px_rgba(6,182,212,0.2)]",
   },
 ];
 
@@ -109,32 +109,37 @@ function DraggableBlock({ block, index }: { block: BlockDefinition; index: numbe
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: index * 0.05 }}
-      whileHover={{ scale: 1.02, x: 4 }}
-      whileTap={{ scale: 0.98 }}
+      transition={{ delay: index * 0.05, type: "spring", stiffness: 200 }}
+      whileHover={{ scale: 1.03, x: 6 }}
+      whileTap={{ scale: 0.97 }}
       draggable
       onDragStart={(e) => onDragStart(e as unknown as DragEvent, block.type)}
       onDragEnd={onDragEnd}
       className={cn(
-        "flex items-center gap-3 p-3 rounded-xl border cursor-grab group",
-        "bg-[#12121a]/80 backdrop-blur-sm transition-all duration-200",
-        "hover:bg-[#1a1a24] hover:shadow-lg active:cursor-grabbing",
+        "relative flex items-center gap-3 p-3 rounded-xl border cursor-grab group overflow-hidden",
+        "bg-gradient-to-br from-[#12121a]/90 to-[#0a0a10]/95 glass-depth-1",
+        "transition-all duration-300 active:cursor-grabbing",
         block.borderColor,
         isDragging && "opacity-50 scale-95"
       )}
     >
+      {/* Holographic shimmer on hover */}
+      <motion.div
+        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"
+      />
+
       <div className={cn(
-        "p-2.5 rounded-xl transition-all duration-200",
+        "relative p-2.5 rounded-xl transition-all duration-300",
         block.color,
-        "group-hover:scale-110"
+        "group-hover:scale-110 group-hover:shadow-lg"
       )}>
         {block.icon}
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-white">{block.label}</div>
-        <div className="text-xs text-white/50 truncate">{block.description}</div>
+      <div className="flex-1 min-w-0 relative">
+        <div className="text-sm font-medium text-white group-hover:text-white/95">{block.label}</div>
+        <div className="text-xs text-white/40 truncate group-hover:text-white/50">{block.description}</div>
       </div>
-      <GripVertical className="w-4 h-4 text-white/20 group-hover:text-white/40 transition-colors" />
+      <GripVertical className="w-4 h-4 text-white/15 group-hover:text-white/40 transition-colors" />
     </motion.div>
   );
 }
@@ -296,10 +301,12 @@ export function StrategySidebar() {
   return (
     <div
       className={cn(
-        "relative flex flex-col border-r border-white/10 bg-[#0a0a0f] transition-all duration-300",
+        "relative flex flex-col cyber-sidebar transition-all duration-300",
         isSidebarOpen ? "w-72" : "w-12"
       )}
     >
+      {/* Vertical accent line */}
+      <div className="absolute top-0 right-0 w-px h-full bg-gradient-to-b from-transparent via-purple-500/30 to-transparent" />
       {/* Toggle Button */}
       <button
         onClick={toggleSidebar}
@@ -384,20 +391,25 @@ export function StrategySidebar() {
                     key={template.id}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
+                    transition={{ delay: index * 0.1, type: "spring", stiffness: 200 }}
                     whileHover={{ scale: 1.02, x: 4 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => handleLoadTemplate(template.id)}
-                    className="w-full p-4 rounded-xl bg-[#12121a]/80 border border-white/10
-                               hover:border-purple-500/40 hover:bg-[#1a1a24] hover:shadow-lg
-                               hover:shadow-purple-500/10 transition-all text-left group"
+                    className="relative w-full p-4 rounded-xl overflow-hidden
+                               bg-gradient-to-br from-[#12121a]/90 to-[#0a0a10]/95
+                               border border-white/5 hover:border-purple-500/40
+                               hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]
+                               transition-all duration-300 text-left group"
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    {/* Holographic shimmer */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-purple-500/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+
+                    <div className="relative flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <motion.div
-                            className="p-1.5 rounded-lg bg-purple-500/20"
-                            whileHover={{ rotate: 15 }}
+                            className="p-1.5 rounded-lg bg-gradient-to-br from-purple-500/25 to-violet-600/10"
+                            whileHover={{ rotate: 15, scale: 1.1 }}
                           >
                             <Zap className="w-3.5 h-3.5 text-purple-400" />
                           </motion.div>
@@ -405,15 +417,15 @@ export function StrategySidebar() {
                             {template.name}
                           </span>
                         </div>
-                        <p className="text-xs text-white/50 mt-1.5 line-clamp-2">
+                        <p className="text-xs text-white/40 mt-1.5 line-clamp-2 group-hover:text-white/50">
                           {template.description}
                         </p>
                       </div>
                       <RiskBadge level={template.riskLevel} />
                     </div>
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
-                      <span className="text-xs text-white/40">Est. APY</span>
-                      <span className="text-sm font-bold text-green-400 neon-green">
+                    <div className="relative flex items-center justify-between mt-3 pt-3 border-t border-white/5">
+                      <span className="text-xs text-white/30">Est. APY</span>
+                      <span className="text-sm font-bold text-emerald-400 neon-green">
                         {template.estimatedApy}
                       </span>
                     </div>

@@ -37,6 +37,8 @@ import { BorrowBlock } from "./blocks/borrow-block";
 import { SwapBlock } from "./blocks/swap-block";
 import { FlowEdge } from "./edges/flow-edge";
 import { SelectionActionBar } from "./selection-action-bar";
+import { AuroraBackground } from "./aurora-background";
+import { CanvasEmptyState } from "./canvas-empty-state";
 
 // ============================================================================
 // Connection Celebration Effect
@@ -56,8 +58,8 @@ function ConnectionCelebration({ x, y, onComplete }: { x: number; y: number; onC
   const [particles, setParticles] = useState<CelebrationParticle[]>([]);
 
   useEffect(() => {
-    // Generate particles in a burst pattern
-    const colors = ["#735CFF", "#A855F7", "#EC4899", "#3B82F6", "#22C55E"];
+    // Generate particles in a burst pattern - Cyberpunk neon colors
+    const colors = ["#00FFD0", "#A855F7", "#FF0080", "#00D4FF", "#FFD000"];
     const newParticles: CelebrationParticle[] = [];
 
     for (let i = 0; i < 12; i++) {
@@ -122,64 +124,36 @@ function ConnectionCelebration({ x, y, onComplete }: { x: number; y: number; onC
 }
 
 // ============================================================================
-// Ambient Floating Particles Background
+// Cyber Grid Background
 // ============================================================================
 
-function AmbientParticles() {
+function CyberGrid() {
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {/* Floating particles */}
-      {Array.from({ length: 20 }).map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute rounded-full bg-purple-500/20"
-          style={{
-            width: 2 + Math.random() * 4,
-            height: 2 + Math.random() * 4,
-            left: `${Math.random() * 100}%`,
-            top: `${Math.random() * 100}%`,
-          }}
-          animate={{
-            y: [0, -30, 0],
-            x: [0, Math.random() * 20 - 10, 0],
-            opacity: [0.2, 0.5, 0.2],
-          }}
-          transition={{
-            duration: 5 + Math.random() * 5,
-            repeat: Infinity,
-            delay: Math.random() * 5,
-            ease: "easeInOut",
-          }}
-        />
-      ))}
+      {/* Animated grid lines */}
+      <div className="absolute inset-0 cyber-grid-animated opacity-30" />
 
-      {/* Gradient orbs */}
+      {/* Vertical scan line */}
       <motion.div
-        className="absolute w-96 h-96 rounded-full"
-        style={{
-          background: "radial-gradient(circle, rgba(115, 92, 255, 0.08) 0%, transparent 70%)",
-          left: "10%",
-          top: "20%",
-        }}
-        animate={{
-          x: [0, 50, 0],
-          y: [0, 30, 0],
-        }}
-        transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-purple-500/50 to-transparent"
+        initial={{ left: "-5%" }}
+        animate={{ left: "105%" }}
+        transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
       />
+
+      {/* Horizontal scan line */}
       <motion.div
-        className="absolute w-80 h-80 rounded-full"
-        style={{
-          background: "radial-gradient(circle, rgba(236, 72, 153, 0.05) 0%, transparent 70%)",
-          right: "15%",
-          bottom: "30%",
-        }}
-        animate={{
-          x: [0, -40, 0],
-          y: [0, -20, 0],
-        }}
-        transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent"
+        initial={{ top: "-5%" }}
+        animate={{ top: "105%" }}
+        transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
       />
+
+      {/* Corner accents */}
+      <div className="absolute top-4 left-4 w-16 h-16 border-l-2 border-t-2 border-purple-500/20 rounded-tl-lg" />
+      <div className="absolute top-4 right-4 w-16 h-16 border-r-2 border-t-2 border-cyan-500/20 rounded-tr-lg" />
+      <div className="absolute bottom-4 left-4 w-16 h-16 border-l-2 border-b-2 border-pink-500/20 rounded-bl-lg" />
+      <div className="absolute bottom-4 right-4 w-16 h-16 border-r-2 border-b-2 border-purple-500/20 rounded-br-lg" />
     </div>
   );
 }
@@ -555,10 +529,15 @@ function CanvasInner() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleCopy, handlePaste, undo, redo, canUndo, canRedo]);
 
+  const hasBlocks = blocks.length > 0;
+
   return (
     <div ref={reactFlowWrapper} className="h-full w-full relative">
-      {/* Ambient background particles */}
-      <AmbientParticles />
+      {/* Aurora background effect */}
+      <AuroraBackground intensity={hasBlocks ? "low" : "medium"} />
+
+      {/* Cyber grid overlay */}
+      <CyberGrid />
 
       {/* Connection celebration effects */}
       <AnimatePresence>
@@ -571,6 +550,9 @@ function CanvasInner() {
           />
         ))}
       </AnimatePresence>
+
+      {/* Empty state when no blocks */}
+      {!hasBlocks && <CanvasEmptyState />}
 
       {/* Selection Action Bar */}
       <SelectionActionBar
@@ -616,10 +598,10 @@ function CanvasInner() {
         proOptions={{ hideAttribution: true }}
       >
         <Background
-          color="#1a1a24"
-          gap={24}
-          size={1}
-          style={{ backgroundColor: "#0a0a0f" }}
+          color="rgba(120, 0, 255, 0.15)"
+          gap={32}
+          size={1.5}
+          style={{ backgroundColor: "transparent" }}
         />
         <Controls
           className="!bg-[#12121a] !border-[#2a2a3a] !rounded-lg"
