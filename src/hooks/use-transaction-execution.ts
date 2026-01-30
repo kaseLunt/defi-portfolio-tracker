@@ -298,6 +298,10 @@ export function useTransactionExecution() {
 
   // Execute the transactions with wagmi
   const execute = useCallback(async () => {
+    if (phase === "executing") {
+      return; // Already executing
+    }
+
     if (!plan || !simulationResult?.success) {
       setError("Cannot execute: simulation not successful");
       return;
@@ -328,13 +332,14 @@ export function useTransactionExecution() {
 
         console.log(`[execute] Transaction sent: ${hash}`);
         txHashes.push(hash);
-        setExecutedTxHashes([...txHashes]);
+        setExecutedTxHashes((prev) => [...prev, hash]);
 
         // Wait for transaction confirmation
         console.log(`[execute] Waiting for confirmation...`);
         const receipt = await waitForTransactionReceipt(config, {
           hash,
           confirmations: 1,
+          timeout: 120_000, // 2 minute timeout
         });
 
         if (receipt.status === "reverted") {
@@ -360,7 +365,7 @@ export function useTransactionExecution() {
 
       setPhase("error");
     }
-  }, [plan, simulationResult, sendTransactionAsync, config]);
+  }, [phase, plan, simulationResult, sendTransactionAsync, config]);
 
   // Reset to initial state
   const reset = useCallback(() => {
