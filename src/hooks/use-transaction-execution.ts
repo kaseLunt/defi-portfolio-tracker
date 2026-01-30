@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useSendTransaction, useConfig } from "wagmi";
+import { waitForTransactionReceipt } from "wagmi/actions";
+import { type Hex, type Address } from "viem";
 import { trpc } from "@/lib/trpc";
 import { useStrategyStore } from "@/lib/strategy/store";
 import type { BlockType } from "@/lib/strategy/types";
@@ -150,6 +152,8 @@ export type ExecutionPhase =
 
 export function useTransactionExecution() {
   const { address, isConnected } = useAccount();
+  const config = useConfig();
+  const { sendTransactionAsync } = useSendTransaction();
   const blocks = useStrategyStore((state) => state.blocks);
   const edges = useStrategyStore((state) => state.edges);
   const optimizeStrategy = useStrategyStore((state) => state.optimizeStrategy);
@@ -165,6 +169,8 @@ export function useTransactionExecution() {
   const [batchingSummary, setBatchingSummary] =
     useState<SerializedBatchingSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
+  const [executedTxHashes, setExecutedTxHashes] = useState<string[]>([]);
 
   // tRPC mutations
   const buildPlanWithApprovalsMutation = trpc.transaction.buildPlanWithApprovals.useMutation();
@@ -290,7 +296,7 @@ export function useTransactionExecution() {
     }
   }, [plan, simulateMutation]);
 
-  // Execute the transactions (placeholder - needs wallet integration)
+  // Execute the transactions with wagmi
   const execute = useCallback(async () => {
     if (!plan || !simulationResult?.success) {
       setError("Cannot execute: simulation not successful");
@@ -298,19 +304,63 @@ export function useTransactionExecution() {
     }
 
     setPhase("executing");
-    // TODO: Implement actual transaction execution with wagmi
-    // This would involve:
-    // 1. For each step, prepare the transaction
-    // 2. Request user signature
-    // 3. Send to network
-    // 4. Wait for confirmation
-    // 5. Update UI with progress
+    setError(null);
+    setCurrentStepIndex(0);
+    setExecutedTxHashes([]);
 
-    // For now, just mark as complete after a delay
-    setTimeout(() => {
+    const txHashes: string[] = [];
+
+    try {
+      // Execute each step sequentially
+      for (let i = 0; i < plan.steps.length; i++) {
+        const step = plan.steps[i];
+        setCurrentStepIndex(i);
+
+        console.log(`[execute] Executing step ${i + 1}/${plan.steps.length}: ${step.description}`);
+
+        // Send the transaction
+        const hash = await sendTransactionAsync({
+          to: step.to as Address,
+          data: step.data as Hex,
+          value: BigInt(step.value),
+          chainId: step.chainId as 1 | 42161 | 10 | 8453 | 137,
+        });
+
+        console.log(`[execute] Transaction sent: ${hash}`);
+        txHashes.push(hash);
+        setExecutedTxHashes([...txHashes]);
+
+        // Wait for transaction confirmation
+        console.log(`[execute] Waiting for confirmation...`);
+        const receipt = await waitForTransactionReceipt(config, {
+          hash,
+          confirmations: 1,
+        });
+
+        if (receipt.status === "reverted") {
+          throw new Error(`Transaction reverted at step ${i + 1}: ${step.description}`);
+        }
+
+        console.log(`[execute] Step ${i + 1} confirmed in block ${receipt.blockNumber}`);
+      }
+
+      // All steps completed successfully
       setPhase("complete");
-    }, 2000);
-  }, [plan, simulationResult]);
+      console.log(`[execute] All ${plan.steps.length} steps completed successfully`);
+    } catch (err) {
+      console.error("[execute] Error:", err);
+      const errorMessage = err instanceof Error ? err.message : "Transaction failed";
+
+      // Handle user rejection specifically
+      if (errorMessage.includes("User rejected") || errorMessage.includes("user rejected")) {
+        setError("Transaction rejected by user");
+      } else {
+        setError(errorMessage);
+      }
+
+      setPhase("error");
+    }
+  }, [plan, simulationResult, sendTransactionAsync, config]);
 
   // Reset to initial state
   const reset = useCallback(() => {
@@ -320,6 +370,8 @@ export function useTransactionExecution() {
     setApprovalCheck(null);
     setBatchingSummary(null);
     setError(null);
+    setCurrentStepIndex(-1);
+    setExecutedTxHashes([]);
   }, []);
 
   // Step descriptions for UI
@@ -364,6 +416,8 @@ export function useTransactionExecution() {
     error,
     canExecute,
     stepDescriptions,
+    currentStepIndex,
+    executedTxHashes,
 
     // Approval info
     approvalSavings,
