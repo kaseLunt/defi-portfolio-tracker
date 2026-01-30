@@ -2,9 +2,15 @@
  * Liquidation Risk Service
  *
  * Fetches Aave V3 positions and calculates liquidation risk metrics including:
- * - Health factors
- * - Liquidation prices
- * - Risk levels
+ * - Portfolio-level health factor (the correct Aave approach)
+ * - Per-collateral liquidation prices
+ * - Risk contribution per position
+ *
+ * IMPORTANT: In Aave V3, health factor is calculated at the PORTFOLIO level:
+ * HF = Sum(collateral_i * threshold_i) / Total Debt
+ *
+ * Individual positions don't have their own health factor - they contribute
+ * to the overall portfolio health.
  */
 
 import { gql } from "graphql-request";
@@ -115,21 +121,74 @@ function getCoingeckoId(symbol: string): string | undefined {
 }
 
 /**
- * Format balance from raw wei to human-readable number
+ * Format balance from raw wei to human-readable number with improved precision.
+ *
+ * NOTE: JavaScript Number has ~15 significant digits of precision. For typical
+ * DeFi amounts (< $1B), this is acceptable. For larger amounts, consider using
+ * a BigNumber library.
+ *
+ * @param rawBalance - The raw balance as bigint (in wei or smallest unit)
+ * @param decimals - Number of decimal places for the token
+ * @returns The formatted balance as a number
  */
 function formatBalance(rawBalance: bigint, decimals: number): number {
-  return Number(rawBalance) / Math.pow(10, decimals);
+  if (rawBalance === 0n) return 0;
+
+  const divisor = BigInt(10 ** decimals);
+  const whole = rawBalance / divisor;
+  const remainder = rawBalance % divisor;
+
+  // Combine whole and fractional parts
+  // This preserves more precision than Number(rawBalance) / 10**decimals
+  return Number(whole) + Number(remainder) / Number(divisor);
+}
+
+/**
+ * Parse liquidation threshold from subgraph response.
+ * Aave stores thresholds as basis points (10000 = 100%) in some subgraphs.
+ */
+function parseLiquidationThreshold(value: string | undefined): number {
+  if (!value) return 0;
+
+  const parsed = parseFloat(value);
+  if (isNaN(parsed)) return 0;
+
+  // If value > 1, it's in basis points (e.g., 8250 = 82.5%)
+  if (parsed > 1) {
+    return parsed / 10000;
+  }
+  return parsed;
+}
+
+// Intermediate type for collecting position data
+interface CollateralData {
+  symbol: string;
+  amount: number;
+  rawAmount: bigint;
+  valueUsd: number;
+  liquidationThreshold: number;
+  maxLtv: number;
+  currentPrice: number;
+  weightedThreshold: number; // valueUsd * threshold
+}
+
+interface DebtData {
+  symbol: string;
+  amount: number;
+  rawAmount: bigint;
+  valueUsd: number;
 }
 
 /**
  * Get wallet risk summary for Aave V3 positions
+ *
+ * Calculates the PORTFOLIO-LEVEL health factor following Aave's formula:
+ * HF = Sum(collateral_i * liquidationThreshold_i) / totalDebt
  */
 export async function getWalletRiskSummary(
   walletAddress: string,
   chainId: SupportedChainId = SUPPORTED_CHAINS.ETHEREUM
 ): Promise<WalletRiskSummary> {
-  const positions: LendingPosition[] = [];
-
   // Query Aave V3 subgraph
   const client = getGraphClient("aave-v3", chainId);
   if (!client) {
@@ -165,13 +224,11 @@ export async function getWalletRiskSummary(
     }
   }
 
-  // Calculate metrics for each position
-  let totalCollateralUsd = 0;
-  let totalDebtUsd = 0;
-  let weightedLiquidationThreshold = 0;
+  // First pass: collect all collateral and debt data
+  const collaterals: CollateralData[] = [];
+  const debts: DebtData[] = [];
+  const skippedTokens: string[] = [];
 
-  // Group by collateral/debt relationship
-  // For simplicity, we'll calculate per-token positions
   for (const userReserve of response.userReserves) {
     const { reserve } = userReserve;
     const decimals = reserve.decimals;
@@ -180,91 +237,181 @@ export async function getWalletRiskSummary(
     const coingeckoId = getCoingeckoId(symbol);
     const currentPrice = coingeckoId ? (priceMap.get(coingeckoId) ?? 0) : 0;
 
-    // Parse liquidation threshold (stored as basis points in some subgraphs, or as percentage)
-    // Aave stores as 10000 = 100%, so we need to normalize
-    let liquidationThreshold = parseFloat(reserve.liquidationThreshold || reserve.reserveLiquidationThreshold || "0");
-    if (liquidationThreshold > 1) {
-      liquidationThreshold = liquidationThreshold / 10000; // Convert from basis points
+    // Skip positions where we can't get a price - don't treat as $0
+    if (currentPrice === 0) {
+      const hasBalance =
+        BigInt(userReserve.currentATokenBalance) > 0n ||
+        BigInt(userReserve.currentVariableDebt) > 0n ||
+        BigInt(userReserve.currentStableDebt) > 0n;
+
+      if (hasBalance) {
+        console.warn(`[Liquidation] Missing price for ${symbol}, skipping position`);
+        skippedTokens.push(symbol);
+      }
+      continue;
     }
 
-    let maxLtv = parseFloat(reserve.baseLTVasCollateral || "0");
-    if (maxLtv > 1) {
-      maxLtv = maxLtv / 10000; // Convert from basis points
-    }
+    const liquidationThreshold = parseLiquidationThreshold(
+      reserve.liquidationThreshold || reserve.reserveLiquidationThreshold
+    );
+    const maxLtv = parseLiquidationThreshold(reserve.baseLTVasCollateral);
 
-    // Supply (collateral) position
+    // Collect collateral data
     const aTokenBalance = BigInt(userReserve.currentATokenBalance);
     if (aTokenBalance > 0n && reserve.usageAsCollateralEnabled) {
-      const collateralAmount = formatBalance(aTokenBalance, decimals);
-      const collateralValueUsd = collateralAmount * currentPrice;
-      totalCollateralUsd += collateralValueUsd;
-      weightedLiquidationThreshold += collateralValueUsd * liquidationThreshold;
+      const amount = formatBalance(aTokenBalance, decimals);
+      const valueUsd = amount * currentPrice;
+
+      collaterals.push({
+        symbol,
+        amount,
+        rawAmount: aTokenBalance,
+        valueUsd,
+        liquidationThreshold,
+        maxLtv,
+        currentPrice,
+        weightedThreshold: valueUsd * liquidationThreshold,
+      });
     }
 
-    // Debt positions (variable + stable)
+    // Collect debt data
     const variableDebt = BigInt(userReserve.currentVariableDebt);
     const stableDebt = BigInt(userReserve.currentStableDebt);
     const totalDebt = variableDebt + stableDebt;
 
     if (totalDebt > 0n) {
-      const debtAmount = formatBalance(totalDebt, decimals);
-      const debtValueUsd = debtAmount * currentPrice;
-      totalDebtUsd += debtValueUsd;
-    }
+      const amount = formatBalance(totalDebt, decimals);
+      const valueUsd = amount * currentPrice;
 
-    // If there's both collateral and debt for this token, create a position entry
-    if (aTokenBalance > 0n && reserve.usageAsCollateralEnabled) {
-      const collateralAmount = formatBalance(aTokenBalance, decimals);
-      const collateralValueUsd = collateralAmount * currentPrice;
-
-      // For each collateral token, we calculate risk against total debt
-      // This is simplified - in reality, Aave allows multiple collaterals
-      if (totalDebtUsd > 0 && collateralValueUsd > 0) {
-        const healthFactor = (collateralValueUsd * liquidationThreshold) / totalDebtUsd;
-        const currentLtv = totalDebtUsd / collateralValueUsd;
-
-        // Liquidation price calculation
-        // Liquidation occurs when: collateralValue * liquidationThreshold = debtValue
-        // liquidationPrice = (debtValueUsd / (collateralAmount * liquidationThreshold))
-        const liquidationPrice = totalDebtUsd / (collateralAmount * liquidationThreshold);
-        const priceDropToLiquidation = currentPrice > 0
-          ? Math.max(0, 1 - (liquidationPrice / currentPrice))
-          : 0;
-
-        positions.push({
-          protocol: "aave-v3",
-          chainId,
-          collateralToken: symbol,
-          collateralAmount: aTokenBalance.toString(),
-          collateralValueUsd,
-          debtToken: "MULTI", // Simplified - actual debt could be in multiple tokens
-          debtAmount: totalDebt.toString(),
-          debtValueUsd: totalDebtUsd,
-          healthFactor,
-          liquidationThreshold,
-          currentLtv,
-          maxLtv,
-          liquidationPrice,
-          currentPrice,
-          priceDropToLiquidation,
-        });
-      }
+      debts.push({
+        symbol,
+        amount,
+        rawAmount: totalDebt,
+        valueUsd,
+      });
     }
   }
 
-  // Calculate overall health factor
-  const avgLiquidationThreshold = totalCollateralUsd > 0
-    ? weightedLiquidationThreshold / totalCollateralUsd
-    : 0;
-  const overallHealthFactor = totalDebtUsd > 0
-    ? (totalCollateralUsd * avgLiquidationThreshold) / totalDebtUsd
-    : Infinity;
+  // Calculate portfolio totals
+  const totalCollateralUsd = collaterals.reduce((sum, c) => sum + c.valueUsd, 0);
+  const totalDebtUsd = debts.reduce((sum, d) => sum + d.valueUsd, 0);
+  const totalWeightedThreshold = collaterals.reduce((sum, c) => sum + c.weightedThreshold, 0);
 
-  // Find positions at risk and most at risk position
-  const positionsAtRisk = positions.filter((p) => p.healthFactor < 1.5).length;
-  const mostAtRiskPosition = positions.length > 0
-    ? positions.reduce((min, p) => (p.healthFactor < min.healthFactor ? p : min))
-    : null;
+  // Calculate portfolio-level health factor
+  // HF = Sum(collateral_i * threshold_i) / Total Debt
+  let overallHealthFactor: number;
+  if (totalDebtUsd === 0) {
+    // No debt = infinite health (no liquidation possible)
+    overallHealthFactor = Infinity;
+  } else if (totalWeightedThreshold === 0) {
+    // No collateral but has debt = instant liquidation
+    overallHealthFactor = 0;
+  } else {
+    overallHealthFactor = totalWeightedThreshold / totalDebtUsd;
+  }
+
+  // Build debt summary for positions
+  const debtSummary =
+    debts.length === 0
+      ? { token: "NONE", amount: "0", valueUsd: 0 }
+      : debts.length === 1
+        ? { token: debts[0].symbol, amount: debts[0].rawAmount.toString(), valueUsd: debts[0].valueUsd }
+        : { token: "MULTI", amount: "0", valueUsd: totalDebtUsd };
+
+  // Build positions with risk contribution and per-collateral liquidation prices
+  const positions: LendingPosition[] = [];
+
+  for (const collateral of collaterals) {
+    // Risk contribution: what percentage of the weighted collateral does this position represent?
+    const riskContribution =
+      totalWeightedThreshold > 0 ? collateral.weightedThreshold / totalWeightedThreshold : 0;
+
+    // Calculate liquidation price for this specific collateral
+    // Liquidation occurs when portfolio HF = 1.0
+    // If THIS collateral's price drops while others stay constant:
+    // (otherWeightedThreshold + newValue * threshold) / totalDebt = 1.0
+    // Solving for the price at which this collateral causes HF = 1.0:
+    //
+    // For a single-collateral scenario:
+    // liquidationPrice = totalDebtUsd / (collateralAmount * threshold)
+    //
+    // For multi-collateral, we calculate the price at which this collateral's
+    // drop would bring HF to 1.0, assuming other collaterals stay constant:
+    const otherWeightedThreshold = totalWeightedThreshold - collateral.weightedThreshold;
+
+    let liquidationPrice: number;
+    let priceDropToLiquidation: number;
+
+    if (totalDebtUsd === 0 || collateral.liquidationThreshold === 0) {
+      // No debt or no liquidation risk for this asset
+      liquidationPrice = 0;
+      priceDropToLiquidation = 1; // 100% drop needed (effectively infinite)
+    } else {
+      // Required weighted value from this collateral to reach HF = 1.0
+      const requiredWeightedValue = totalDebtUsd - otherWeightedThreshold;
+
+      if (requiredWeightedValue <= 0) {
+        // Other collaterals alone cover the debt - this one can go to 0
+        liquidationPrice = 0;
+        priceDropToLiquidation = 1;
+      } else {
+        // liquidationPrice * amount * threshold = requiredWeightedValue
+        liquidationPrice = requiredWeightedValue / (collateral.amount * collateral.liquidationThreshold);
+
+        // Calculate percentage drop needed
+        if (collateral.currentPrice > 0 && liquidationPrice < collateral.currentPrice) {
+          priceDropToLiquidation = 1 - liquidationPrice / collateral.currentPrice;
+        } else {
+          priceDropToLiquidation = 0; // Already at or below liquidation price
+        }
+      }
+    }
+
+    // Current LTV for this collateral (debt / collateral value)
+    const currentLtv = collateral.valueUsd > 0 ? totalDebtUsd / collateral.valueUsd : 0;
+
+    // Per-position "health factor" - what HF would be if this were the only collateral
+    // This is informational, showing how healthy this individual collateral is
+    const positionHealthFactor =
+      totalDebtUsd > 0 ? collateral.weightedThreshold / totalDebtUsd : Infinity;
+
+    positions.push({
+      protocol: "aave-v3",
+      chainId,
+      collateralToken: collateral.symbol,
+      collateralAmount: collateral.rawAmount.toString(),
+      collateralValueUsd: collateral.valueUsd,
+      debtToken: debtSummary.token,
+      debtAmount: debtSummary.amount,
+      debtValueUsd: debtSummary.valueUsd,
+      healthFactor: Number.isFinite(positionHealthFactor) ? positionHealthFactor : 999,
+      liquidationThreshold: collateral.liquidationThreshold,
+      currentLtv,
+      maxLtv: collateral.maxLtv,
+      riskContribution,
+      liquidationPrice,
+      currentPrice: collateral.currentPrice,
+      priceDropToLiquidation: Math.max(0, Math.min(1, priceDropToLiquidation)),
+    });
+  }
+
+  // Find positions at risk (where this collateral's price drop would trigger liquidation soon)
+  const positionsAtRisk = positions.filter((p) => p.priceDropToLiquidation < 0.25).length;
+
+  // Most at risk = smallest price drop to liquidation
+  const mostAtRiskPosition =
+    positions.length > 0
+      ? positions.reduce((min, p) =>
+          p.priceDropToLiquidation < min.priceDropToLiquidation ? p : min
+        )
+      : null;
+
+  // Log warning about skipped tokens
+  if (skippedTokens.length > 0) {
+    console.warn(
+      `[Liquidation] Skipped ${skippedTokens.length} tokens due to missing prices: ${skippedTokens.join(", ")}`
+    );
+  }
 
   return {
     address: walletAddress,
@@ -272,8 +419,10 @@ export async function getWalletRiskSummary(
     totalCollateralUsd,
     totalDebtUsd,
     netWorthUsd: totalCollateralUsd - totalDebtUsd,
-    overallHealthFactor: Number.isFinite(overallHealthFactor) ? overallHealthFactor : 0,
-    overallRiskLevel: getRiskLevel(overallHealthFactor),
+    overallHealthFactor: Number.isFinite(overallHealthFactor) ? overallHealthFactor : 999,
+    overallRiskLevel: getRiskLevel(
+      Number.isFinite(overallHealthFactor) ? overallHealthFactor : 999
+    ),
     positions,
     positionsAtRisk,
     mostAtRiskPosition,
@@ -317,7 +466,7 @@ function buildEmptySummary(
     totalCollateralUsd: 0,
     totalDebtUsd: 0,
     netWorthUsd: 0,
-    overallHealthFactor: 0,
+    overallHealthFactor: 999, // Use high value instead of 0 for "safe" with no positions
     overallRiskLevel: "safe",
     positions: [],
     positionsAtRisk: 0,

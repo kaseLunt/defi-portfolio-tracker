@@ -18,21 +18,28 @@ export interface LendingPosition {
   collateralAmount: string; // raw amount in wei
   collateralValueUsd: number;
 
-  // Debt info
-  debtToken: string; // e.g., "USDC"
+  // Debt info (for display purposes - actual debt is portfolio-level in Aave)
+  debtToken: string; // e.g., "USDC" or "MULTI" for multiple debt tokens
   debtAmount: string;
   debtValueUsd: number;
 
   // Risk metrics
+  // NOTE: In Aave V3, health factor is a PORTFOLIO-level metric, not per-position.
+  // This field shows what the HF would be if this were the only collateral.
+  // For actual portfolio HF, use WalletRiskSummary.overallHealthFactor.
   healthFactor: number; // 1.0 = liquidation threshold
   liquidationThreshold: number; // e.g., 0.825 (82.5%)
   currentLtv: number; // current loan-to-value
   maxLtv: number; // maximum allowed LTV
 
-  // Liquidation price (price at which position gets liquidated)
+  // Risk contribution - what percentage of total weighted collateral this position represents
+  riskContribution: number; // 0-1, higher = more impact on portfolio HF
+
+  // Liquidation price (price at which this collateral alone would cause HF = 1.0)
+  // This is the price drop threshold for THIS collateral asset
   liquidationPrice: number;
   currentPrice: number;
-  priceDropToLiquidation: number; // percentage drop needed
+  priceDropToLiquidation: number; // percentage drop needed (0-1)
 }
 
 // Aggregated risk data for a wallet
