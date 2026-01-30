@@ -1,0 +1,8 @@
+# Don't copy these to Docker
+node_modules
+.next
+.git
+.env
+.env.*
+package-lock.json
+*.log
