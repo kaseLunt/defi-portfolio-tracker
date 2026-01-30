@@ -5,9 +5,6 @@ WORKDIR /app
 # Install OpenSSL for Prisma
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
-# Install yarn
-RUN npm install -g yarn
-
 # Copy package.json only
 COPY package.json ./
 
