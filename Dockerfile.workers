@@ -5,11 +5,14 @@ WORKDIR /app
 # Install OpenSSL for Prisma
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
-# Copy package.json only (NOT package-lock.json to avoid platform issues)
+# Install yarn
+RUN npm install -g yarn
+
+# Copy package.json only
 COPY package.json ./
 
-# Install dependencies fresh (no lockfile = no platform conflicts)
-RUN npm install --legacy-peer-deps 2>&1 || (cat /root/.npm/_logs/*.log && exit 1)
+# Install with yarn (handles optional/platform deps correctly)
+RUN yarn install --ignore-optional --network-timeout 100000
 
 # Copy Prisma schema and generate client
 COPY prisma ./prisma
