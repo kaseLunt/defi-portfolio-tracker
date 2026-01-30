@@ -10,6 +10,11 @@ import {
 import { mainnet, arbitrum, optimism, base, polygon } from "viem/chains";
 import { SUPPORTED_CHAINS, type SupportedChainId } from "@/lib/constants";
 
+// Build Alchemy URL from API key
+const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || "";
+const buildAlchemyUrl = (network: string) =>
+  ALCHEMY_API_KEY ? `https://${network}.g.alchemy.com/v2/${ALCHEMY_API_KEY}` : "";
+
 // Chain definitions map
 const CHAIN_DEFINITIONS: Record<SupportedChainId, Chain> = {
   [SUPPORTED_CHAINS.ETHEREUM]: mainnet,
@@ -20,37 +25,37 @@ const CHAIN_DEFINITIONS: Record<SupportedChainId, Chain> = {
 };
 
 // RPC endpoints with fallbacks per chain
-// Priority: env var > official chain RPC > llamarpc > other free RPCs
+// Priority: Alchemy (from API key) > env var > official chain RPC > llamarpc
 const RPC_ENDPOINTS: Record<SupportedChainId, string[]> = {
   [SUPPORTED_CHAINS.ETHEREUM]: [
+    buildAlchemyUrl("eth-mainnet"),
     process.env.ALCHEMY_RPC_MAINNET || "",
     "https://eth.llamarpc.com",
     "https://cloudflare-eth.com",
-    "https://1rpc.io/eth",
   ].filter(Boolean),
   [SUPPORTED_CHAINS.ARBITRUM]: [
+    buildAlchemyUrl("arb-mainnet"),
     process.env.ALCHEMY_RPC_ARBITRUM || "",
-    "https://arb1.arbitrum.io/rpc", // Official Arbitrum RPC
+    "https://arb1.arbitrum.io/rpc",
     "https://arbitrum.llamarpc.com",
-    "https://1rpc.io/arb",
   ].filter(Boolean),
   [SUPPORTED_CHAINS.OPTIMISM]: [
+    buildAlchemyUrl("opt-mainnet"),
     process.env.ALCHEMY_RPC_OPTIMISM || "",
-    "https://mainnet.optimism.io", // Official Optimism RPC
+    "https://mainnet.optimism.io",
     "https://optimism.llamarpc.com",
-    "https://1rpc.io/op",
   ].filter(Boolean),
   [SUPPORTED_CHAINS.BASE]: [
+    buildAlchemyUrl("base-mainnet"),
     process.env.ALCHEMY_RPC_BASE || "",
-    "https://mainnet.base.org", // Official Base RPC
+    "https://mainnet.base.org",
     "https://base.llamarpc.com",
-    "https://1rpc.io/base",
   ].filter(Boolean),
   [SUPPORTED_CHAINS.POLYGON]: [
+    buildAlchemyUrl("polygon-mainnet"),
     process.env.ALCHEMY_RPC_POLYGON || "",
-    "https://polygon-rpc.com", // Official Polygon RPC
+    "https://polygon-rpc.com",
     "https://polygon.llamarpc.com",
-    "https://1rpc.io/matic",
   ].filter(Boolean),
 };
 
