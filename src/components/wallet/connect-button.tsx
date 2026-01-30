@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useAccount, useConnect, useDisconnect, useEnsName } from "wagmi";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,26 +23,39 @@ import {
 
 export function ConnectButton() {
   const [mounted, setMounted] = useState(false);
+  const [signInAttempted, setSignInAttempted] = useState(false);
   const { address, isConnected, isConnecting } = useAccount();
   const { connect, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const { data: ensName } = useEnsName({ address });
-  const { isLoggedIn, isLoading, user, signIn, fullDisconnect } = useAuth();
+  const { isLoggedIn, isLoading, user, signIn, fullDisconnect, error } = useAuth();
+
+  // Track previous address to reset signInAttempted when wallet changes
+  const prevAddressRef = useRef<string | undefined>(undefined);
 
   // Prevent hydration mismatch
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Auto sign-in when wallet connects
+  // Reset sign-in attempted when address changes
   useEffect(() => {
-    if (isConnected && address && !isLoggedIn && !isLoading) {
+    if (address !== prevAddressRef.current) {
+      prevAddressRef.current = address;
+      setSignInAttempted(false);
+    }
+  }, [address]);
+
+  // Auto sign-in when wallet connects (only once per connection)
+  useEffect(() => {
+    if (isConnected && address && !isLoggedIn && !isLoading && !signInAttempted) {
+      setSignInAttempted(true);
       const timer = setTimeout(() => {
         signIn();
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isConnected, address, isLoggedIn, isLoading, signIn]);
+  }, [isConnected, address, isLoggedIn, isLoading, signIn, signInAttempted]);
 
   // Get the injected connector (MetaMask, etc.)
   const injectedConnector = connectors.find(
