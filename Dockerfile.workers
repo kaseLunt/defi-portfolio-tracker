@@ -1,4 +1,4 @@
-# Use Alpine for smaller image
+# Minimal workers image
 FROM node:22-alpine
 
 WORKDIR /app
@@ -6,19 +6,18 @@ WORKDIR /app
 # Install OpenSSL for Prisma
 RUN apk add --no-cache openssl
 
-COPY package.json ./
+# Use minimal package.json for workers only
+COPY workers.package.json ./package.json
 
-# Install all deps but clean cache after
-RUN yarn install --ignore-optional --network-timeout 100000 && \
-    yarn cache clean
+# Install minimal deps
+RUN npm install --legacy-peer-deps && npm cache clean --force
 
+# Copy Prisma and generate
 COPY prisma ./prisma
 RUN npx prisma generate
 
+# Copy source
 COPY tsconfig.json ./
 COPY src ./src
-
-# Clean up unnecessary files to reduce size
-RUN rm -rf /tmp/* /root/.npm /root/.cache
 
 CMD ["npx", "tsx", "src/server/jobs/start-workers.ts"]
