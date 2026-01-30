@@ -81,10 +81,58 @@ export const weETHAbi = [
     stateMutability: "view",
     type: "function",
   },
+  // ========== Write Functions ==========
+  {
+    inputs: [{ name: "_eETHAmount", type: "uint256" }],
+    name: "wrap",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "_weETHAmount", type: "uint256" }],
+    name: "unwrap",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
 ] as const;
 
 // Liquifier (for depositing ETH) ABI
 export const liquifierAbi = [
+  {
+    inputs: [],
+    name: "getTotalPooledEther",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  // ========== Write Functions ==========
+  {
+    inputs: [{ name: "_referral", type: "address" }],
+    name: "deposit",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "payable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "depositWithERC20",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "payable",
+    type: "function",
+  },
+] as const;
+
+// EtherFi LiquidityPool ABI (alternative staking entry point)
+export const etherFiLiquidityPoolAbi = [
+  {
+    inputs: [{ name: "_referral", type: "address" }],
+    name: "deposit",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "payable",
+    type: "function",
+  },
   {
     inputs: [],
     name: "getTotalPooledEther",

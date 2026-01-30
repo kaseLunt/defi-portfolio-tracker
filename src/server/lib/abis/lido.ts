@@ -49,6 +49,14 @@ export const stETHAbi = [
     stateMutability: "view",
     type: "function",
   },
+  // ========== Write Functions ==========
+  {
+    inputs: [{ name: "_referral", type: "address" }],
+    name: "submit",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "payable",
+    type: "function",
+  },
 ] as const;
 
 // wstETH (wrapped stETH, non-rebasing) ABI
@@ -93,6 +101,21 @@ export const wstETHAbi = [
     name: "getStETHByWstETH",
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view",
+    type: "function",
+  },
+  // ========== Write Functions ==========
+  {
+    inputs: [{ name: "_stETHAmount", type: "uint256" }],
+    name: "wrap",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "_wstETHAmount", type: "uint256" }],
+    name: "unwrap",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "nonpayable",
     type: "function",
   },
 ] as const;

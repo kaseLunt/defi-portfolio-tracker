@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { subscribeToSSE, onSSEConnect, onSSEDisconnect, isSSEConnected, reconnectSSE } from "@/lib/sse-connection";
 
 interface PriceUpdate {
   prices: Record<string, { usd: number; change24h: number | null }>;
@@ -62,187 +63,135 @@ interface RealtimeState {
 
 /**
  * Hook for real-time updates via Server-Sent Events
- *
- * Features:
- * - Auto-reconnect on disconnect
- * - Invalidates React Query cache on updates
- * - Provides connection state
+ * Uses singleton SSE connection to prevent connection exhaustion
  */
 export function useRealtime() {
   const queryClient = useQueryClient();
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectAttempts = useRef(0);
 
   const [state, setState] = useState<RealtimeState>({
-    isConnected: false,
+    isConnected: isSSEConnected(),
     lastPriceUpdate: null,
     connectionError: null,
   });
 
-  const connect = useCallback(() => {
-    // Don't connect if already connected
-    if (eventSourceRef.current?.readyState === EventSource.OPEN) {
-      return;
+  // Handle price updates
+  const handlePriceUpdate = useCallback((event: MessageEvent) => {
+    const data: PriceUpdate = JSON.parse(event.data);
+    setState((prev) => ({ ...prev, lastPriceUpdate: data }));
+    queryClient.invalidateQueries({ queryKey: ["price"] });
+  }, [queryClient]);
+
+  // Handle notifications
+  const handleNotification = useCallback((event: MessageEvent) => {
+    const data: NotificationUpdate = JSON.parse(event.data);
+    console.log("New notification:", data.title);
+    queryClient.invalidateQueries({ queryKey: ["notification"] });
+  }, [queryClient]);
+
+  // Handle position updates
+  const handlePositionUpdate = useCallback((event: MessageEvent) => {
+    const data: PositionUpdate = JSON.parse(event.data);
+    console.log("Position update:", data.positionId, data.changePercent);
+    queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+  }, [queryClient]);
+
+  // Handle alert triggered
+  const handleAlertTriggered = useCallback((event: MessageEvent) => {
+    const data = JSON.parse(event.data);
+    console.log("Alert triggered:", data.ruleName);
+    queryClient.invalidateQueries({ queryKey: ["notification"] });
+    queryClient.invalidateQueries({ queryKey: ["alertRules"] });
+  }, [queryClient]);
+
+  // Handle transaction detected
+  const handleTransactionDetected = useCallback((event: MessageEvent) => {
+    const data: TransactionDetectedUpdate = JSON.parse(event.data);
+    console.log("Transaction detected:", data.direction, data.tokenSymbol);
+
+    const symbol = data.tokenSymbol || "tokens";
+    const amount = data.valueFormatted?.toFixed(4) || "some";
+    const usdValue = data.valueUsd ? `($${data.valueUsd.toFixed(2)})` : "";
+
+    if (data.direction === "in") {
+      toast.success(`Received ${amount} ${symbol} ${usdValue}`, {
+        description: "View transaction on explorer",
+        action: {
+          label: "View",
+          onClick: () => {
+            const explorerUrl = getExplorerUrl(data.chainId, data.transactionHash);
+            window.open(explorerUrl, "_blank");
+          },
+        },
+      });
+    } else {
+      toast.info(`Sent ${amount} ${symbol} ${usdValue}`, {
+        description: "View transaction on explorer",
+        action: {
+          label: "View",
+          onClick: () => {
+            const explorerUrl = getExplorerUrl(data.chainId, data.transactionHash);
+            window.open(explorerUrl, "_blank");
+          },
+        },
+      });
     }
 
-    // Close existing connection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
+    queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+  }, [queryClient]);
 
-    try {
-      const eventSource = new EventSource("/api/events");
-      eventSourceRef.current = eventSource;
+  // Handle connection event
+  const handleConnected = useCallback((event: MessageEvent) => {
+    const data = JSON.parse(event.data);
+    console.log("[useRealtime] SSE connected as:", data.userId);
+  }, []);
 
-      eventSource.onopen = () => {
-        console.log("SSE connected");
-        reconnectAttempts.current = 0;
-        setState((prev) => ({
-          ...prev,
-          isConnected: true,
-          connectionError: null,
-        }));
-      };
+  useEffect(() => {
+    // Subscribe to all events using singleton connection
+    const unsubscribers = [
+      subscribeToSSE("connected", handleConnected),
+      subscribeToSSE("price:update", handlePriceUpdate),
+      subscribeToSSE("notification:new", handleNotification),
+      subscribeToSSE("position:update", handlePositionUpdate),
+      subscribeToSSE("alert:triggered", handleAlertTriggered),
+      subscribeToSSE("transaction:detected", handleTransactionDetected),
+    ];
 
-      eventSource.onerror = () => {
-        console.error("SSE connection error");
-        eventSource.close();
-        setState((prev) => ({
-          ...prev,
-          isConnected: false,
-          connectionError: "Connection lost",
-        }));
+    // Track connection state
+    const unsubConnect = onSSEConnect(() => {
+      setState((prev) => ({
+        ...prev,
+        isConnected: true,
+        connectionError: null,
+      }));
+    });
 
-        // Exponential backoff for reconnection
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
-        reconnectAttempts.current += 1;
-
-        reconnectTimeoutRef.current = setTimeout(() => {
-          console.log(`Reconnecting SSE (attempt ${reconnectAttempts.current})...`);
-          connect();
-        }, delay);
-      };
-
-      // Handle connection event
-      eventSource.addEventListener("connected", (event) => {
-        const data = JSON.parse(event.data);
-        console.log("SSE connected as:", data.userId);
-      });
-
-      // Handle price updates
-      eventSource.addEventListener("price:update", (event) => {
-        const data: PriceUpdate = JSON.parse(event.data);
-        setState((prev) => ({ ...prev, lastPriceUpdate: data }));
-
-        // Invalidate price-related queries
-        queryClient.invalidateQueries({ queryKey: ["price"] });
-      });
-
-      // Handle new notifications
-      eventSource.addEventListener("notification:new", (event) => {
-        const data: NotificationUpdate = JSON.parse(event.data);
-        console.log("New notification:", data.title);
-
-        // Invalidate notification queries to show new notification
-        queryClient.invalidateQueries({ queryKey: ["notification"] });
-      });
-
-      // Handle position updates
-      eventSource.addEventListener("position:update", (event) => {
-        const data: PositionUpdate = JSON.parse(event.data);
-        console.log("Position update:", data.positionId, data.changePercent);
-
-        // Invalidate portfolio queries
-        queryClient.invalidateQueries({ queryKey: ["portfolio"] });
-      });
-
-      // Handle alert triggered
-      eventSource.addEventListener("alert:triggered", (event) => {
-        const data = JSON.parse(event.data);
-        console.log("Alert triggered:", data.ruleName);
-
-        // Invalidate alert and notification queries
-        queryClient.invalidateQueries({ queryKey: ["notification"] });
-        queryClient.invalidateQueries({ queryKey: ["alertRules"] });
-      });
-
-      // Handle real-time transaction detected
-      eventSource.addEventListener("transaction:detected", (event) => {
-        const data: TransactionDetectedUpdate = JSON.parse(event.data);
-        console.log("Transaction detected:", data.direction, data.tokenSymbol);
-
-        // Show toast notification
-        const symbol = data.tokenSymbol || "tokens";
-        const amount = data.valueFormatted?.toFixed(4) || "some";
-        const usdValue = data.valueUsd ? `($${data.valueUsd.toFixed(2)})` : "";
-
-        if (data.direction === "in") {
-          toast.success(`Received ${amount} ${symbol} ${usdValue}`, {
-            description: "View transaction on explorer",
-            action: {
-              label: "View",
-              onClick: () => {
-                // Open transaction in block explorer
-                const explorerUrl = getExplorerUrl(data.chainId, data.transactionHash);
-                window.open(explorerUrl, "_blank");
-              },
-            },
-          });
-        } else {
-          toast.info(`Sent ${amount} ${symbol} ${usdValue}`, {
-            description: "View transaction on explorer",
-            action: {
-              label: "View",
-              onClick: () => {
-                const explorerUrl = getExplorerUrl(data.chainId, data.transactionHash);
-                window.open(explorerUrl, "_blank");
-              },
-            },
-          });
-        }
-
-        // Invalidate portfolio queries to refresh balances
-        queryClient.invalidateQueries({ queryKey: ["portfolio"] });
-      });
-    } catch (error) {
-      console.error("Failed to create EventSource:", error);
+    const unsubDisconnect = onSSEDisconnect(() => {
       setState((prev) => ({
         ...prev,
         isConnected: false,
-        connectionError: "Failed to connect",
+        connectionError: "Connection lost",
       }));
-    }
-  }, [queryClient]);
-
-  const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-
-    setState((prev) => ({ ...prev, isConnected: false }));
-  }, []);
-
-  // Connect on mount, disconnect on unmount
-  useEffect(() => {
-    connect();
+    });
 
     return () => {
-      disconnect();
+      unsubscribers.forEach(unsub => unsub());
+      unsubConnect();
+      unsubDisconnect();
     };
-  }, [connect, disconnect]);
+  }, [
+    handleConnected,
+    handlePriceUpdate,
+    handleNotification,
+    handlePositionUpdate,
+    handleAlertTriggered,
+    handleTransactionDetected,
+  ]);
 
   // Reconnect when tab becomes visible
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible" && !state.isConnected) {
-        connect();
+        reconnectSSE();
       }
     };
 
@@ -250,12 +199,12 @@ export function useRealtime() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [connect, state.isConnected]);
+  }, [state.isConnected]);
 
   return {
     ...state,
-    connect,
-    disconnect,
+    connect: reconnectSSE,
+    disconnect: () => {}, // No-op, singleton manages lifecycle
   };
 }
 

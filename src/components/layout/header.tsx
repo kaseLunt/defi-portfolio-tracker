@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/etherfi", label: "Ether.Fi", accent: true },
+  { href: "/strategies", label: "Strategies" },
   { href: "/alerts", label: "Alerts" },
 ];
 

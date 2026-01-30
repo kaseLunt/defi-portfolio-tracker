@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import type { SSEEvent, PriceUpdateEvent } from "@/server/lib/events";
+import { useState, useEffect, useCallback } from "react";
+import { subscribeToSSE, onSSEConnect, onSSEDisconnect } from "@/lib/sse-connection";
+import type { PriceUpdateEvent } from "@/server/lib/events";
 
 interface PriceData {
   usd: number;
@@ -18,108 +19,68 @@ interface UseLivePricesResult {
 
 /**
  * Hook to receive live price updates via Server-Sent Events
- * Tracks recently updated tokens for visual feedback
+ * Uses singleton SSE connection to prevent connection exhaustion
  */
 export function useLivePrices(): UseLivePricesResult {
   const [prices, setPrices] = useState<Record<string, PriceData>>({});
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
   const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(new Set());
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const connect = useCallback(() => {
-    // Don't reconnect if already connected
-    if (eventSourceRef.current?.readyState === EventSource.OPEN) {
-      return;
-    }
-
+  const handlePriceUpdate = useCallback((event: MessageEvent) => {
     try {
-      const eventSource = new EventSource("/api/events");
-      eventSourceRef.current = eventSource;
+      const data = JSON.parse(event.data) as PriceUpdateEvent["data"];
+      const updatedTokens = new Set<string>();
 
-      eventSource.onopen = () => {
-        setIsConnected(true);
-        console.log("[SSE] Connected to price updates");
-      };
-
-      eventSource.onerror = () => {
-        setIsConnected(false);
-        eventSource.close();
-        eventSourceRef.current = null;
-
-        // Reconnect after delay
-        if (!reconnectTimeoutRef.current) {
-          reconnectTimeoutRef.current = setTimeout(() => {
-            reconnectTimeoutRef.current = null;
-            connect();
-          }, 5000);
+      setPrices((prev) => {
+        const next = { ...prev };
+        for (const [tokenId, priceInfo] of Object.entries(data.prices)) {
+          if (prev[tokenId]?.usd !== priceInfo.usd) {
+            updatedTokens.add(tokenId);
+          }
+          next[tokenId] = {
+            ...priceInfo,
+            updatedAt: data.timestamp,
+          };
         }
-      };
+        return next;
+      });
 
-      // Handle price update events
-      eventSource.addEventListener("price:update", (event: MessageEvent) => {
-        try {
-          const data = JSON.parse(event.data) as PriceUpdateEvent["data"];
-          const updatedTokens = new Set<string>();
+      setLastUpdate(data.timestamp);
 
-          setPrices((prev) => {
-            const next = { ...prev };
-            for (const [tokenId, priceInfo] of Object.entries(data.prices)) {
-              // Check if price actually changed
-              if (prev[tokenId]?.usd !== priceInfo.usd) {
-                updatedTokens.add(tokenId);
-              }
-              next[tokenId] = {
-                ...priceInfo,
-                updatedAt: data.timestamp,
-              };
-            }
+      if (updatedTokens.size > 0) {
+        setRecentlyUpdated((prev) => new Set([...prev, ...updatedTokens]));
+        setTimeout(() => {
+          setRecentlyUpdated((prev) => {
+            const next = new Set(prev);
+            updatedTokens.forEach((t) => next.delete(t));
             return next;
           });
-
-          setLastUpdate(data.timestamp);
-
-          // Track recently updated tokens for animation
-          if (updatedTokens.size > 0) {
-            setRecentlyUpdated((prev) => new Set([...prev, ...updatedTokens]));
-            // Clear after animation duration
-            setTimeout(() => {
-              setRecentlyUpdated((prev) => {
-                const next = new Set(prev);
-                updatedTokens.forEach((t) => next.delete(t));
-                return next;
-              });
-            }, 2000);
-          }
-        } catch (error) {
-          console.error("[SSE] Failed to parse price update:", error);
-        }
-      });
-
-      // Handle connection event
-      eventSource.addEventListener("connected", (event: MessageEvent) => {
-        console.log("[SSE] Connection confirmed:", JSON.parse(event.data));
-      });
+        }, 2000);
+      }
     } catch (error) {
-      console.error("[SSE] Failed to create EventSource:", error);
+      console.error("[useLivePrices] Failed to parse price update:", error);
     }
   }, []);
 
-  // Connect on mount
   useEffect(() => {
-    connect();
+    // Subscribe to events using singleton connection
+    const unsubscribePrice = subscribeToSSE("price:update", handlePriceUpdate);
+    const unsubscribeConnected = subscribeToSSE("connected", (event) => {
+      console.log("[useLivePrices] Connection confirmed:", JSON.parse(event.data));
+    });
+
+    // Track connection state
+    const unsubscribeOnConnect = onSSEConnect(() => setIsConnected(true));
+    const unsubscribeOnDisconnect = onSSEDisconnect(() => setIsConnected(false));
 
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
+      unsubscribePrice();
+      unsubscribeConnected();
+      unsubscribeOnConnect();
+      unsubscribeOnDisconnect();
     };
-  }, [connect]);
+  }, [handlePriceUpdate]);
 
   return {
     prices,

@@ -266,7 +266,7 @@ function FlowEdgeComponent({
         return (block.data as StakeBlockData).outputAsset || "ETH";
       }
 
-      // Swap outputs its toAsset
+      // Swap outputs its toAsset (handles auto-wrap blocks too)
       if (block.data.type === "swap") {
         return (block.data as SwapBlockData).toAsset || "ETH";
       }
@@ -296,6 +296,18 @@ function FlowEdgeComponent({
 
     return traceInputAsset(sourceBlock.id);
   }, [sourceBlock, blocks, edges]);
+
+  // Check if source block is an auto-wrap block (shows transformation)
+  const isAutoWrapSource = useMemo(() => {
+    if (!sourceBlock) return false;
+    return (sourceBlock.data as Record<string, unknown>).isAutoInserted === true;
+  }, [sourceBlock]);
+
+  // Get the input asset for auto-wrap blocks
+  const sourceInputAsset = useMemo((): AssetType | null => {
+    if (!isAutoWrapSource || !sourceBlock) return null;
+    return (sourceBlock.data as SwapBlockData).fromAsset || null;
+  }, [isAutoWrapSource, sourceBlock]);
 
   // Format display value
   const formatFlowDisplay = () => {
@@ -445,7 +457,16 @@ function FlowEdgeComponent({
             {/* Holographic shimmer on hover */}
             <div className={`absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full ${(isHovered || isLabelHovered) ? "translate-x-full transition-transform duration-700" : ""}`} />
             <span className="relative flex items-center gap-2">
-              <span className="font-semibold">{formatFlowDisplay()} {assetSymbol}</span>
+              {isAutoWrapSource && sourceInputAsset ? (
+                // Show transformation for auto-wrap edges
+                <span className="font-semibold flex items-center gap-1">
+                  <span className="opacity-70">{sourceInputAsset}</span>
+                  <span className="text-purple-400">→</span>
+                  <span>{assetSymbol}</span>
+                </span>
+              ) : (
+                <span className="font-semibold">{formatFlowDisplay()} {assetSymbol}</span>
+              )}
               <span className={`text-[10px] ${isPartialFlow ? "text-amber-500/70" : "text-cyan-500/60"}`}>
                 {Math.round(flowPercent)}%
               </span>

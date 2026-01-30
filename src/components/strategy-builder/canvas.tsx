@@ -35,6 +35,7 @@ import { StakeBlock } from "./blocks/stake-block";
 import { LendBlock } from "./blocks/lend-block";
 import { BorrowBlock } from "./blocks/borrow-block";
 import { SwapBlock } from "./blocks/swap-block";
+import { AutoWrapBlock } from "./blocks/auto-wrap-block";
 import { FlowEdge } from "./edges/flow-edge";
 import { SelectionActionBar } from "./selection-action-bar";
 import { AuroraBackground } from "./aurora-background";
@@ -168,6 +169,7 @@ const nodeTypes: NodeTypes = {
   lend: LendBlock,
   borrow: BorrowBlock,
   swap: SwapBlock,
+  "auto-wrap": AutoWrapBlock,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -625,6 +627,8 @@ function CanvasInner() {
                 return "#F59E0B";
               case "swap":
                 return "#06B6D4";
+              case "auto-wrap":
+                return "#64748B"; // Slate for auto-inserted nodes
               default:
                 return "#6B7280";
             }

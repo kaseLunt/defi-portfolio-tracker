@@ -17,7 +17,8 @@ export type BlockType =
   | "borrow"
   | "swap"
   | "lp"
-  | "loop";
+  | "loop"
+  | "auto-wrap";
 
 export type AssetType = "ETH" | "USDC" | "USDT" | "DAI" | "stETH" | "eETH" | "weETH" | "wstETH" | "rETH" | "cbETH" | "sfrxETH";
 

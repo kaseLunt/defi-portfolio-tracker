@@ -21,12 +21,15 @@ import {
   AlertTriangle,
   Zap,
   Sparkles,
+  Loader2,
 } from "lucide-react";
 import { StrategyCanvas } from "@/components/strategy-builder/canvas";
 import { StrategySidebar } from "@/components/strategy-builder/sidebar";
 import { AnalysisView } from "@/components/strategy-builder/analysis/analysis-view";
+import { ExecutionModal } from "@/components/strategy-builder/execution";
 import { useStrategyStore } from "@/lib/strategy/store";
 import { simulateStrategy } from "@/lib/strategy/simulation";
+import { useTransactionExecution } from "@/hooks/use-transaction-execution";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { Orbitron, Exo_2, Fira_Code } from "next/font/google";
@@ -222,7 +225,13 @@ function SimulationRunner() {
 // Toolbar Component
 // ============================================================================
 
-function Toolbar() {
+interface ToolbarProps {
+  onExecute: () => void;
+  canExecute: boolean;
+  isBuilding: boolean;
+}
+
+function Toolbar({ onExecute, canExecute, isBuilding }: ToolbarProps) {
   const blocks = useStrategyStore((state) => state.blocks);
   const clearStrategy = useStrategyStore((state) => state.clearStrategy);
   const simulationResult = useStrategyStore((state) => state.simulationResult);
@@ -272,25 +281,26 @@ function Toolbar() {
 
       {/* Right - Actions with enhanced styling */}
       <div className="flex items-center gap-3">
-        {/* Execute Button - Coming Soon */}
-        <div className="relative group">
-          <motion.button
-            disabled
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all
-                       bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-400/50
-                       border border-green-500/20 cursor-not-allowed"
-          >
+        {/* Execute Button */}
+        <motion.button
+          onClick={onExecute}
+          disabled={!canExecute || isBuilding}
+          whileHover={canExecute ? { scale: 1.02 } : undefined}
+          whileTap={canExecute ? { scale: 0.98 } : undefined}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all",
+            canExecute
+              ? "bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)] hover:shadow-[0_0_30px_rgba(34,197,94,0.5)]"
+              : "bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-400/50 border border-green-500/20 cursor-not-allowed"
+          )}
+        >
+          {isBuilding ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
             <Play className="w-4 h-4" />
-            <span>Execute</span>
-          </motion.button>
-          {/* Tooltip */}
-          <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg
-                          bg-[#1a1a24] border border-white/10 text-xs text-white/70 whitespace-nowrap
-                          opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none
-                          shadow-xl z-50">
-            Coming soon — Execute strategy on-chain
-          </div>
-        </div>
+          )}
+          <span>{isBuilding ? "Building..." : "Execute"}</span>
+        </motion.button>
 
         <div className="flex items-center gap-1 p-1 rounded-xl bg-white/5 border border-white/10">
           <motion.button
@@ -386,6 +396,16 @@ function YieldsPrefetcher() {
 export default function StrategiesPage() {
   const [mounted, setMounted] = useState(false);
   const [currentView, setCurrentView] = useState<"canvas" | "analysis">("canvas");
+  const [executionModalOpen, setExecutionModalOpen] = useState(false);
+
+  // Transaction execution hook
+  const execution = useTransactionExecution();
+
+  // Handle execute button click
+  const handleExecute = async () => {
+    setExecutionModalOpen(true);
+    await execution.buildPlan();
+  };
 
   // Hydration pattern for React Flow (client-only component)
   useEffect(() => {
@@ -468,7 +488,18 @@ export default function StrategiesPage() {
       <YieldsPrefetcher />
 
       {/* Toolbar */}
-      <Toolbar />
+      <Toolbar
+        onExecute={handleExecute}
+        canExecute={execution.canExecute ?? false}
+        isBuilding={execution.isBuilding}
+      />
+
+      {/* Execution Modal */}
+      <ExecutionModal
+        open={executionModalOpen}
+        onOpenChange={setExecutionModalOpen}
+        execution={execution}
+      />
 
       {/* Main Content - Switch between Canvas and Analysis */}
       <AnimatePresence mode="wait">

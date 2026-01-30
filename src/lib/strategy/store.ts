@@ -32,6 +32,13 @@ import {
 } from "@xyflow/react";
 import { getDefaultApy } from "./protocols";
 import type { StrategyApyData } from "@/server/services/yields";
+import {
+  analyzeRouteCompatibility,
+  optimizeRoute,
+  validateRoute,
+  type TokenIncompatibility,
+  type RouteValidationResult,
+} from "./route-optimizer";
 
 // ============================================================================
 // Smart Connection Helpers
@@ -205,6 +212,12 @@ interface StrategyState {
   deleteSystem: (id: string) => void;
   placeSystem: (systemId: string, position: { x: number; y: number }) => void;
   loadSavedSystems: () => void;
+
+  // Actions - Route Optimization
+  optimizeStrategy: () => { success: boolean; insertedCount: number };
+  getRouteIncompatibilities: () => TokenIncompatibility[];
+  validateStrategy: () => RouteValidationResult;
+  removeAutoInsertedBlocks: () => void;
 }
 
 // ============================================================================
@@ -868,6 +881,73 @@ export const useStrategyStore = create<StrategyState>()(
       // Actions - Prices
       setEthPrice: (price) => {
         set({ ethPrice: price });
+      },
+
+      // Actions - Route Optimization
+      optimizeStrategy: () => {
+        const { blocks, edges, history, historyIndex } = get();
+
+        // Run route optimization
+        const optimized = optimizeRoute(blocks, edges);
+
+        if (optimized.autoInsertedBlockIds.length === 0) {
+          return { success: true, insertedCount: 0 };
+        }
+
+        // Push current state to history before optimization
+        const historyEntry = cloneState(blocks, edges);
+        const newHistory = [...history.slice(0, historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
+        set({
+          blocks: optimized.blocks,
+          edges: optimized.edges,
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
+          simulationResult: null,
+        });
+
+        return { success: true, insertedCount: optimized.autoInsertedBlockIds.length };
+      },
+
+      getRouteIncompatibilities: () => {
+        const { blocks, edges } = get();
+        return analyzeRouteCompatibility(blocks, edges);
+      },
+
+      validateStrategy: () => {
+        const { blocks, edges } = get();
+        return validateRoute(blocks, edges);
+      },
+
+      removeAutoInsertedBlocks: () => {
+        const { blocks, edges, history, historyIndex } = get();
+
+        // Find all auto-inserted blocks
+        const autoBlockIds = new Set(
+          blocks
+            .filter((b) => (b.data as Record<string, unknown>).isAutoInserted === true)
+            .map((b) => b.id)
+        );
+
+        if (autoBlockIds.size === 0) return;
+
+        // Push current state to history
+        const historyEntry = cloneState(blocks, edges);
+        const newHistory = [...history.slice(0, historyIndex + 1), historyEntry].slice(-MAX_HISTORY_SIZE);
+
+        // Remove auto-inserted blocks and their edges
+        const filteredBlocks = blocks.filter((b) => !autoBlockIds.has(b.id));
+        const filteredEdges = edges.filter(
+          (e) => !autoBlockIds.has(e.source) && !autoBlockIds.has(e.target)
+        );
+
+        set({
+          blocks: filteredBlocks,
+          edges: filteredEdges,
+          history: newHistory,
+          historyIndex: newHistory.length - 1,
+          simulationResult: null,
+        });
       },
     }),
     { name: "strategy-store" }
