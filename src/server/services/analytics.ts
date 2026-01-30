@@ -123,7 +123,7 @@ async function fetchChainBalance(
   } catch (error) {
     console.warn(
       `[Analytics] Failed to fetch weETH balance on chain ${chainId}:`,
-      error instanceof Error ? error.message : error
+      error
     );
     return null;
   }
@@ -151,12 +151,26 @@ async function fetchWeETHExchangeRate(): Promise<number> {
     // Rate is in 18 decimals, represents how much ETH 1 weETH is worth
     return Number(formatUnits(rate, 18));
   } catch (error) {
-    console.warn(
-      "[Analytics] Failed to fetch weETH exchange rate:",
-      error instanceof Error ? error.message : error
-    );
+    console.warn("[Analytics] Failed to fetch weETH exchange rate:", error);
     return 1.0; // Fallback
   }
+}
+
+/**
+ * Build empty analytics response when data is unavailable
+ */
+function buildEmptyAnalytics(walletAddress: string): CrossChainWeETHAnalytics {
+  return {
+    walletAddress,
+    timestamp: Date.now(),
+    totalWeethBalance: 0,
+    totalWeethValueUsd: 0,
+    totalUnderlyingEth: 0,
+    holdings: [],
+    chainDistribution: [],
+    weightedAverageApy: 0,
+    bestYieldChain: null,
+  };
 }
 
 /**
@@ -176,6 +190,14 @@ export async function getWeETHAnalytics(
 
   const weethPrice = priceData.get("wrapped-eeth")?.priceUsd ?? 0;
   const ethPrice = priceData.get("ethereum")?.priceUsd ?? 0;
+
+  // Early return if prices are missing - prevents 0 USD calculations
+  if (!weethPrice || !ethPrice) {
+    console.warn(
+      "[Analytics] Missing price data - weETH or ETH price unavailable"
+    );
+    return buildEmptyAnalytics(walletAddress);
+  }
 
   // Fetch balances from all chains in parallel
   const balancePromises = WEETH_CHAINS.map(async (chainInfo) => {
@@ -242,7 +264,7 @@ export async function getWeETHAnalytics(
   // Find best yield chain (for now all chains have the same native APY)
   // In the future, this could factor in additional protocol yields per chain
   const bestYieldChain =
-    holdings.length > 0
+    holdings.length > 0 && etherfiApy > 0
       ? {
           chainId: holdings[0].chainId,
           chainName: holdings[0].chainName,
