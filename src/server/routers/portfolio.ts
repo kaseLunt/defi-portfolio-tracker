@@ -24,16 +24,25 @@ export const portfolioRouter = router({
       })
     )
     .query(async ({ input }) => {
+      console.log(`[API] getTokenBalances called for ${input.walletAddress.slice(0, 10)}...`);
+
       const chains = input.chains?.filter(isSupportedChain) as
         | SupportedChainId[]
         | undefined;
 
-      const result = await getTokenBalancesFast(input.walletAddress as Address, chains);
+      try {
+        const result = await getTokenBalancesFast(input.walletAddress as Address, chains);
 
-      return {
-        ...result,
-        walletAddress: input.walletAddress,
-      };
+        console.log(`[API] getTokenBalances result: ${result.balances.length} tokens, $${result.totalValueUsd.toFixed(2)} total`);
+
+        return {
+          ...result,
+          walletAddress: input.walletAddress,
+        };
+      } catch (error) {
+        console.error(`[API] getTokenBalances FAILED:`, error);
+        throw error;
+      }
     }),
 
   /**
@@ -51,6 +60,8 @@ export const portfolioRouter = router({
       })
     )
     .query(async ({ input }) => {
+      console.log(`[API] getDefiPositions called for ${input.walletAddress.slice(0, 10)}... with ${input.tokenSymbols?.length ?? 0} token symbols`);
+
       const chains = input.chains?.filter(isSupportedChain) as
         | SupportedChainId[]
         | undefined;
@@ -67,16 +78,23 @@ export const portfolioRouter = router({
         quoteUsd: 1, // Non-zero to pass dust filter
       }));
 
-      const result = await getDefiPositionsFast(
-        input.walletAddress as Address,
-        tokenBalances,
-        chains
-      );
+      try {
+        const result = await getDefiPositionsFast(
+          input.walletAddress as Address,
+          tokenBalances,
+          chains
+        );
 
-      return {
-        ...result,
-        walletAddress: input.walletAddress,
-      };
+        console.log(`[API] getDefiPositions result: ${result.positions.length} positions, $${result.totalValueUsd.toFixed(2)} total, protocols: ${result.protocolsQueried.join(", ") || "none"}`);
+
+        return {
+          ...result,
+          walletAddress: input.walletAddress,
+        };
+      } catch (error) {
+        console.error(`[API] getDefiPositions FAILED:`, error);
+        throw error;
+      }
     }),
 
   // Get live portfolio for any wallet address (read-only, no auth required)

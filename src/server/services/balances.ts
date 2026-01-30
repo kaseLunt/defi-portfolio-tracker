@@ -48,7 +48,7 @@ async function fetchChainBalances(
   chainId: SupportedChainId
 ): Promise<TokenBalance[]> {
   if (!COVALENT_API_KEY) {
-    console.warn("[Balances] No COVALENT_API_KEY configured");
+    console.error("[Balances] CRITICAL: No COVALENT_API_KEY configured - token balances will be empty!");
     return [];
   }
 
@@ -60,6 +60,7 @@ async function fetchChainBalances(
   const url = `${COVALENT_BASE_URL}/${chainName}/address/${walletAddress}/balances_v2/?quote-currency=USD&no-spam=true&no-nft-fetch=true`;
 
   try {
+    console.log(`[Balances] Fetching from GoldRush for ${chainName}...`);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
@@ -74,7 +75,8 @@ async function fetchChainBalances(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.warn(`[Balances] GoldRush API error for ${chainName}: ${response.status}`);
+      const errorText = await response.text().catch(() => "");
+      console.error(`[Balances] GoldRush API error for ${chainName}: ${response.status} - ${errorText.slice(0, 200)}`);
       return [];
     }
 
@@ -108,6 +110,9 @@ async function fetchChainBalances(
         logoUrl: item.logo_url,
       });
     }
+
+    const totalUsd = balances.reduce((sum, b) => sum + b.quoteUsd, 0);
+    console.log(`[Balances] ${chainName}: ${balances.length} tokens, $${totalUsd.toFixed(2)} total`);
 
     return balances;
   } catch (error) {
