@@ -7,6 +7,7 @@ import { historyRouter } from "./history";
 import { etherfiRouter } from "./etherfi";
 import { yieldsRouter } from "./yields";
 import { transactionRouter } from "./transaction";
+import { liquidationRouter } from "./liquidation";
 
 export const appRouter = router({
   user: userRouter,
@@ -17,6 +18,7 @@ export const appRouter = router({
   etherfi: etherfiRouter,
   yields: yieldsRouter,
   transaction: transactionRouter,
+  liquidation: liquidationRouter,
 });
 
 export type AppRouter = typeof appRouter;
