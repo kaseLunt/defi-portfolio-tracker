@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { Layers, Wallet, TrendingUp, Coins, ArrowRightLeft, Globe } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -157,6 +157,8 @@ function ChainDistributionBar({
                 marginLeft: idx > 0 ? "2px" : "0",
               }}
               title={`${chain.chainName}: ${formatPercent(chain.percentage)}`}
+              aria-label={`${chain.chainName}: ${formatPercent(chain.percentage)} of holdings`}
+              role="img"
             />
           );
         })}
@@ -385,6 +387,12 @@ export default function AnalyticsPage() {
 
   const hasHoldings = analytics && analytics.holdings.length > 0;
 
+  // Memoize sorted holdings to avoid sorting on every render
+  const sortedHoldings = useMemo(() => {
+    if (!analytics?.holdings) return [];
+    return [...analytics.holdings].sort((a, b) => b.weethValueUsd - a.weethValueUsd);
+  }, [analytics?.holdings]);
+
   return (
     <div className="container py-8">
       {/* Background effects */}
@@ -448,7 +456,7 @@ export default function AnalyticsPage() {
         ) : isLoading ? (
           <LoadingState />
         ) : error ? (
-          <ErrorState error={error.message} />
+          <ErrorState error={error?.message ?? "Failed to load analytics"} />
         ) : !hasHoldings ? (
           <EmptyHoldingsState />
         ) : (
@@ -481,25 +489,23 @@ export default function AnalyticsPage() {
             <div>
               <h2 className="text-xl font-semibold mb-4">Holdings by Chain</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {analytics.holdings
-                  .sort((a, b) => b.weethValueUsd - a.weethValueUsd)
-                  .map((holding) => {
-                    const distribution = analytics.chainDistribution.find(
-                      (d) => d.chainId === holding.chainId
-                    );
-                    return (
-                      <ChainHoldingCard
-                        key={holding.chainId}
-                        chainId={holding.chainId}
-                        chainName={holding.chainName}
-                        weethBalanceFormatted={holding.weethBalanceFormatted}
-                        weethValueUsd={holding.weethValueUsd}
-                        percentage={distribution?.percentage ?? 0}
-                        underlyingEthAmount={holding.underlyingEthAmount}
-                        apy={holding.apy}
-                      />
-                    );
-                  })}
+                {sortedHoldings.map((holding) => {
+                  const distribution = analytics.chainDistribution.find(
+                    (d) => d.chainId === holding.chainId
+                  );
+                  return (
+                    <ChainHoldingCard
+                      key={holding.chainId}
+                      chainId={holding.chainId}
+                      chainName={holding.chainName}
+                      weethBalanceFormatted={holding.weethBalanceFormatted}
+                      weethValueUsd={holding.weethValueUsd}
+                      percentage={distribution?.percentage ?? 0}
+                      underlyingEthAmount={holding.underlyingEthAmount}
+                      apy={holding.apy}
+                    />
+                  );
+                })}
               </div>
             </div>
 
