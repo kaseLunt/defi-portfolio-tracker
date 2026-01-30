@@ -1,0 +1,14 @@
+# Railway/Nixpacks build configuration
+# Override default npm ci with flexible npm install
+
+[phases.setup]
+nixPkgs = ["nodejs_22"]
+
+[phases.install]
+cmds = ["npm install --legacy-peer-deps --ignore-scripts"]
+
+[phases.build]
+cmds = ["npx prisma generate"]
+
+[start]
+cmd = "npm run workers"
