@@ -14,7 +14,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/etherfi", label: "Ether.Fi", accent: true },
   { href: "/strategies", label: "Strategies" },
-  { href: "/liquidation", label: "Liquidation Risk" },
+  { href: "/liquidation", label: "Liquidation" },
   { href: "/analytics", label: "Analytics" },
   { href: "/alerts", label: "Alerts" },
 ];
