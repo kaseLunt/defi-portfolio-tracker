@@ -1,21 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useAccount } from "wagmi";
 import { useRouter } from "next/navigation";
-import { Layers, Wallet, TrendingUp, Coins, ArrowRightLeft, Globe, Sparkles } from "lucide-react";
+import { useAccount } from "wagmi";
+import { Layers, Wallet, TrendingUp, Coins, ArrowRightLeft, Globe, Search, ArrowRight } from "lucide-react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
-import { ConnectButton } from "@/components/wallet/connect-button";
+import { Button } from "@/components/ui/button";
 import { WEETH_CHAINS } from "@/lib/analytics/types";
-import { CHAIN_INFO, type SupportedChainId } from "@/lib/constants";
 import { ETHERFI_BRAND } from "@/lib/etherfi-constants";
 import { formatAddress } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-
-// Demo wallet for testing - EtherFi wallet with weETH
-const DEMO_WALLET = "0x521c25254245bA6eE9F00825789687703E548774";
 
 // Extended chain info to include Scroll (not in main CHAIN_INFO)
 const EXTENDED_CHAIN_INFO: Record<number, { name: string; shortName: string; color: string }> = {
@@ -55,7 +51,6 @@ function formatPercent(value: number): string {
 function LoadingState() {
   return (
     <div className="space-y-6">
-      {/* Total Holdings Card Skeleton */}
       <Card className="overflow-hidden">
         <CardHeader>
           <Skeleton className="h-6 w-48" />
@@ -71,41 +66,12 @@ function LoadingState() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Chain Distribution Skeleton */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {Array.from({ length: 3 }).map((_, i) => (
           <SkeletonCard key={i} />
         ))}
       </div>
     </div>
-  );
-}
-
-// Not Connected State
-function NotConnectedState({ onViewDemo }: { onViewDemo: () => void }) {
-  return (
-    <Card className="border-dashed">
-      <CardContent className="flex flex-col items-center justify-center py-16">
-        <div
-          className="w-20 h-20 rounded-full flex items-center justify-center mb-6"
-          style={{ backgroundColor: `${ETHERFI_BRAND.primary}15` }}
-        >
-          <Wallet className="w-10 h-10" style={{ color: ETHERFI_BRAND.primary }} />
-        </div>
-        <h3 className="text-xl font-semibold mb-3">Connect Your Wallet</h3>
-        <p className="text-muted-foreground text-center max-w-md mb-6">
-          Connect your wallet to view your weETH holdings across Ethereum, Arbitrum, Base, Optimism, and Scroll.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <ConnectButton />
-          <Button variant="outline" onClick={onViewDemo} className="gap-2">
-            <Sparkles className="w-4 h-4" />
-            View Demo Portfolio
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -154,7 +120,6 @@ function ChainDistributionBar({
 
   return (
     <div className="space-y-4">
-      {/* Visual Bar */}
       <div className="h-4 rounded-full overflow-hidden flex bg-secondary/50">
         {distribution.map((chain, idx) => {
           const chainInfo = EXTENDED_CHAIN_INFO[chain.chainId];
@@ -168,14 +133,10 @@ function ChainDistributionBar({
                 marginLeft: idx > 0 ? "2px" : "0",
               }}
               title={`${chain.chainName}: ${formatPercent(chain.percentage)}`}
-              aria-label={`${chain.chainName}: ${formatPercent(chain.percentage)} of holdings`}
-              role="img"
             />
           );
         })}
       </div>
-
-      {/* Legend */}
       <div className="flex flex-wrap gap-4">
         {distribution.map((chain) => {
           const chainInfo = EXTENDED_CHAIN_INFO[chain.chainId];
@@ -210,7 +171,6 @@ function TotalHoldingsCard({
   weightedAverageApy: number;
   holdings: Array<{ weethToEthRate: number }>;
 }) {
-  // Get exchange rate from first holding (same across all chains)
   const exchangeRate = holdings.length > 0 ? holdings[0].weethToEthRate : 1;
 
   return (
@@ -218,11 +178,7 @@ function TotalHoldingsCard({
       className="overflow-hidden border-2"
       style={{ borderColor: `${ETHERFI_BRAND.primary}30` }}
     >
-      {/* Gradient header accent */}
-      <div
-        className="h-1"
-        style={{ background: ETHERFI_BRAND.gradient }}
-      />
+      <div className="h-1" style={{ background: ETHERFI_BRAND.gradient }} />
       <CardHeader className="pb-2">
         <div className="flex items-center gap-3">
           <div
@@ -239,27 +195,20 @@ function TotalHoldingsCard({
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
-          {/* Total weETH */}
           <div className="text-center">
             <div className="text-3xl font-bold font-mono" style={{ color: ETHERFI_BRAND.primary }}>
               {formatTokenAmount(totalWeethBalance)}
             </div>
             <div className="text-sm text-muted-foreground mt-1">weETH Balance</div>
           </div>
-
-          {/* USD Value */}
           <div className="text-center">
             <div className="text-3xl font-bold font-mono">{formatUsd(totalWeethValueUsd)}</div>
             <div className="text-sm text-muted-foreground mt-1">Total Value</div>
           </div>
-
-          {/* Underlying ETH */}
           <div className="text-center">
             <div className="text-3xl font-bold font-mono">{formatTokenAmount(totalUnderlyingEth)}</div>
             <div className="text-sm text-muted-foreground mt-1">Underlying ETH</div>
           </div>
-
-          {/* Exchange Rate */}
           <div className="text-center">
             <div className="text-3xl font-bold font-mono">{exchangeRate.toFixed(4)}</div>
             <div className="text-sm text-muted-foreground mt-1 flex items-center justify-center gap-1">
@@ -267,8 +216,6 @@ function TotalHoldingsCard({
               weETH/ETH Rate
             </div>
           </div>
-
-          {/* APY */}
           <div className="text-center">
             <div className="text-3xl font-bold font-mono text-green-500">
               {weightedAverageApy > 0 ? `${weightedAverageApy.toFixed(2)}%` : "--"}
@@ -323,12 +270,10 @@ function ChainHoldingCard({
             </div>
           </div>
           {apy && apy > 0 && (
-            <div className="text-right">
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-500">
-                <TrendingUp className="w-3 h-3" />
-                {apy.toFixed(2)}% APY
-              </span>
-            </div>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-500/10 text-green-500">
+              <TrendingUp className="w-3 h-3" />
+              {apy.toFixed(2)}% APY
+            </span>
           )}
         </div>
       </CardHeader>
@@ -347,8 +292,6 @@ function ChainHoldingCard({
             <div className="text-xs text-muted-foreground">ETH Equivalent</div>
           </div>
         </div>
-
-        {/* Visual percentage bar */}
         <div className="mt-4">
           <div className="h-2 rounded-full bg-secondary/50 overflow-hidden">
             <div
@@ -365,39 +308,64 @@ function ChainHoldingCard({
   );
 }
 
-// Main Page Component
-export default function AnalyticsPage() {
-  const [mounted, setMounted] = useState(false);
-  const { address, isConnected } = useAccount();
+interface Props {
+  params: Promise<{ wallet: string }>;
+}
+
+export default function AnalyticsWalletPage({ params }: Props) {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const { address, isConnected } = useAccount();
+
+  // Resolve params
+  useEffect(() => {
+    params.then((p) => {
+      const wallet = p.wallet;
+      if (/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+        setWalletAddress(wallet);
+        setSearchInput(wallet);
+      } else {
+        router.replace("/analytics");
+      }
+    });
+  }, [params, router]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  const viewDemo = () => {
-    router.push(`/analytics/${DEMO_WALLET}`);
-  };
 
   const {
     data: analytics,
     isLoading,
     error,
   } = trpc.analytics.getWeETHAnalytics.useQuery(
-    { walletAddress: address ?? "" },
-    { enabled: !!address && isConnected }
+    { walletAddress: walletAddress ?? "" },
+    { enabled: !!walletAddress }
   );
 
-  // Memoize sorted holdings - MUST be before any early returns to satisfy hook rules
+  // Memoize sorted holdings - MUST be before any early returns
   const sortedHoldings = useMemo(() => {
     if (!analytics?.holdings) return [];
     return [...analytics.holdings].sort((a, b) => b.weethValueUsd - a.weethValueUsd);
   }, [analytics?.holdings]);
 
   const hasHoldings = analytics && analytics.holdings.length > 0;
+  const isOwnWallet = isConnected && address?.toLowerCase() === walletAddress?.toLowerCase();
 
-  // Prevent hydration mismatch
-  if (!mounted) {
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchInput && /^0x[a-fA-F0-9]{40}$/.test(searchInput)) {
+      router.push(`/analytics/${searchInput}`);
+    } else if (searchInput) {
+      toast.error("Invalid address", {
+        description: "Please enter a valid Ethereum address (0x...)",
+      });
+    }
+  };
+
+  if (!mounted || !walletAddress) {
     return (
       <div className="container py-8">
         <div className="mb-8">
@@ -435,13 +403,36 @@ export default function AnalyticsPage() {
             </div>
             <div>
               <h1 className="text-3xl font-bold tracking-tight">weETH Cross-Chain Analytics</h1>
-              <p className="text-muted-foreground">
-                {isConnected && address
-                  ? `Tracking holdings for ${formatAddress(address)}`
-                  : "Connect your wallet to view your weETH holdings"}
+              <p className="text-muted-foreground flex items-center gap-2">
+                Tracking holdings for {formatAddress(walletAddress)}
+                {isOwnWallet && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                    Your wallet
+                  </span>
+                )}
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="mb-6">
+          <form onSubmit={handleSearch} className="flex gap-2 max-w-xl">
+            <div className="flex-1 relative group">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+              <input
+                type="text"
+                placeholder="Enter wallet address (0x...)"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-card/50 text-sm focus:outline-none focus:border-primary focus:bg-card transition-all font-mono"
+              />
+            </div>
+            <Button type="submit" className="gap-2">
+              View
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+          </form>
         </div>
 
         {/* Supported Chains Badge */}
@@ -467,9 +458,7 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Main Content */}
-        {!isConnected ? (
-          <NotConnectedState onViewDemo={viewDemo} />
-        ) : isLoading ? (
+        {isLoading ? (
           <LoadingState />
         ) : error ? (
           <ErrorState error={error?.message ?? "Failed to load analytics"} />
@@ -477,7 +466,6 @@ export default function AnalyticsPage() {
           <EmptyHoldingsState />
         ) : (
           <div className="space-y-8">
-            {/* Total Holdings Card */}
             <TotalHoldingsCard
               totalWeethBalance={analytics.totalWeethBalance}
               totalWeethValueUsd={analytics.totalWeethValueUsd}
@@ -486,7 +474,6 @@ export default function AnalyticsPage() {
               holdings={analytics.holdings}
             />
 
-            {/* Chain Distribution */}
             {analytics.chainDistribution.length > 1 && (
               <Card>
                 <CardHeader>
@@ -501,7 +488,6 @@ export default function AnalyticsPage() {
               </Card>
             )}
 
-            {/* Per-Chain Holdings */}
             <div>
               <h2 className="text-xl font-semibold mb-4">Holdings by Chain</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -525,7 +511,6 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            {/* Best Yield Info */}
             {analytics.bestYieldChain && (
               <Card className="bg-green-500/5 border-green-500/20">
                 <CardContent className="py-4">

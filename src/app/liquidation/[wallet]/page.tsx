@@ -1,20 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAccount } from "wagmi";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Shield, TrendingDown, Wallet, Sparkles } from "lucide-react";
+import { useAccount } from "wagmi";
+import { AlertTriangle, Shield, TrendingDown, Wallet, Search, ArrowRight } from "lucide-react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Skeleton, SkeletonCard, SkeletonRow } from "@/components/ui/skeleton";
-import { ConnectButton } from "@/components/wallet/connect-button";
+import { Button } from "@/components/ui/button";
 import { CHAIN_INFO, type SupportedChainId } from "@/lib/constants";
 import { formatAddress } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import type { RiskLevel, LendingPosition, WalletRiskSummary } from "@/lib/liquidation/types";
-
-// Demo wallet for testing - Aave V3 position holder
-const DEMO_WALLET = "0x521c25254245bA6eE9F00825789687703E548774";
 
 // Risk level to color mapping
 const riskColors: Record<RiskLevel, { text: string; bg: string; border: string }> = {
@@ -134,7 +131,6 @@ function ChainSummaryCard({ summary }: { summary: WalletRiskSummary }) {
   const chainInfo = CHAIN_INFO[summary.chainId as SupportedChainId];
   const colors = riskColors[summary.overallRiskLevel];
 
-  // Sort positions by risk contribution (most at risk first)
   const sortedPositions = [...summary.positions].sort(
     (a, b) => a.priceDropToLiquidation - b.priceDropToLiquidation
   );
@@ -159,7 +155,6 @@ function ChainSummaryCard({ summary }: { summary: WalletRiskSummary }) {
         </div>
       </CardHeader>
       <CardContent>
-        {/* Summary Stats */}
         <div className="grid grid-cols-4 gap-4 mb-6">
           <div className="text-center">
             <div className={`text-2xl font-bold font-mono ${colors.text}`}>
@@ -181,7 +176,6 @@ function ChainSummaryCard({ summary }: { summary: WalletRiskSummary }) {
           </div>
         </div>
 
-        {/* Positions Table */}
         {sortedPositions.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -244,34 +238,9 @@ function EmptyPositionsState() {
         </div>
         <h3 className="text-lg font-semibold mb-2">No Aave V3 Positions Found</h3>
         <p className="text-muted-foreground text-center max-w-md">
-          You don&apos;t have any lending positions on Aave V3 across the supported chains.
-          Positions will appear here once you supply collateral and borrow on Aave.
+          No lending positions found on Aave V3 across the supported chains.
+          Positions will appear here once collateral is supplied and borrowed on Aave.
         </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Not Connected State
-function NotConnectedState({ onViewDemo }: { onViewDemo: () => void }) {
-  return (
-    <Card className="border-dashed">
-      <CardContent className="flex flex-col items-center justify-center py-12">
-        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-          <Wallet className="w-8 h-8 text-primary" />
-        </div>
-        <h3 className="text-lg font-semibold mb-2">Connect Your Wallet</h3>
-        <p className="text-muted-foreground text-center max-w-md mb-6">
-          Connect your wallet to view your Aave V3 lending positions and monitor liquidation risk
-          across Ethereum, Arbitrum, Optimism, Base, and Polygon.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <ConnectButton />
-          <Button variant="outline" onClick={onViewDemo} className="gap-2">
-            <Sparkles className="w-4 h-4" />
-            View Demo Portfolio
-          </Button>
-        </div>
       </CardContent>
     </Card>
   );
@@ -294,13 +263,11 @@ function ErrorState({ error }: { error: string }) {
 
 // Aggregate Summary Component
 function AggregatedSummary({ summaries }: { summaries: WalletRiskSummary[] }) {
-  // Calculate aggregate values
   const totalCollateral = summaries.reduce((sum, s) => sum + s.totalCollateralUsd, 0);
   const totalDebt = summaries.reduce((sum, s) => sum + s.totalDebtUsd, 0);
   const netWorth = totalCollateral - totalDebt;
   const totalPositionsAtRisk = summaries.reduce((sum, s) => sum + s.positionsAtRisk, 0);
 
-  // Find the worst health factor across all chains
   const worstHF = Math.min(...summaries.map((s) => s.overallHealthFactor));
   const worstRiskLevel = summaries.reduce(
     (worst, s) => {
@@ -318,12 +285,9 @@ function AggregatedSummary({ summaries }: { summaries: WalletRiskSummary[] }) {
     <Card className={`${colors.border} border-2`}>
       <CardContent className="py-8">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-8 items-center">
-          {/* Health Factor - Large Display */}
           <div className="md:col-span-1 flex justify-center">
             <HealthFactorDisplay value={worstHF} riskLevel={worstRiskLevel} />
           </div>
-
-          {/* Stats Grid */}
           <div className="md:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-6">
             <div>
               <div className="text-sm text-muted-foreground mb-1">Total Collateral</div>
@@ -355,31 +319,57 @@ function AggregatedSummary({ summaries }: { summaries: WalletRiskSummary[] }) {
   );
 }
 
-// Main Page Component
-export default function LiquidationPage() {
-  const [mounted, setMounted] = useState(false);
-  const { address, isConnected } = useAccount();
+interface Props {
+  params: Promise<{ wallet: string }>;
+}
+
+export default function LiquidationWalletPage({ params }: Props) {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const { address, isConnected } = useAccount();
+
+  // Resolve params
+  useEffect(() => {
+    params.then((p) => {
+      const wallet = p.wallet;
+      if (/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+        setWalletAddress(wallet);
+        setSearchInput(wallet);
+      } else {
+        router.replace("/liquidation");
+      }
+    });
+  }, [params, router]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  const viewDemo = () => {
-    router.push(`/liquidation/${DEMO_WALLET}`);
-  };
 
   const {
     data: summaries,
     isLoading,
     error,
   } = trpc.liquidation.getRiskSummaryAllChains.useQuery(
-    { walletAddress: address ?? "" },
-    { enabled: !!address && isConnected }
+    { walletAddress: walletAddress ?? "" },
+    { enabled: !!walletAddress }
   );
 
-  // Prevent hydration mismatch
-  if (!mounted) {
+  const isOwnWallet = isConnected && address?.toLowerCase() === walletAddress?.toLowerCase();
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchInput && /^0x[a-fA-F0-9]{40}$/.test(searchInput)) {
+      router.push(`/liquidation/${searchInput}`);
+    } else if (searchInput) {
+      toast.error("Invalid address", {
+        description: "Please enter a valid Ethereum address (0x...)",
+      });
+    }
+  };
+
+  if (!mounted || !walletAddress) {
     return (
       <div className="container py-8">
         <div className="mb-8">
@@ -399,19 +389,42 @@ export default function LiquidationPage() {
           <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
             <TrendingDown className="w-5 h-5 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">Liquidation Risk Monitor</h1>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Liquidation Risk Monitor</h1>
+            <p className="text-muted-foreground flex items-center gap-2">
+              Monitoring positions for {formatAddress(walletAddress)}
+              {isOwnWallet && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                  Your wallet
+                </span>
+              )}
+            </p>
+          </div>
         </div>
-        <p className="text-muted-foreground">
-          {isConnected && address
-            ? `Monitoring positions for ${formatAddress(address)}`
-            : "Connect your wallet to monitor your lending positions"}
-        </p>
+      </div>
+
+      {/* Search Bar */}
+      <div className="mb-6">
+        <form onSubmit={handleSearch} className="flex gap-2 max-w-xl">
+          <div className="flex-1 relative group">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+            <input
+              type="text"
+              placeholder="Enter wallet address (0x...)"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-card/50 text-sm focus:outline-none focus:border-primary focus:bg-card transition-all font-mono"
+            />
+          </div>
+          <Button type="submit" className="gap-2">
+            View
+            <ArrowRight className="w-4 h-4" />
+          </Button>
+        </form>
       </div>
 
       {/* Main Content */}
-      {!isConnected ? (
-        <NotConnectedState onViewDemo={viewDemo} />
-      ) : isLoading ? (
+      {isLoading ? (
         <LoadingState />
       ) : error ? (
         <ErrorState error={error.message} />
@@ -419,10 +432,7 @@ export default function LiquidationPage() {
         <EmptyPositionsState />
       ) : (
         <div className="space-y-6">
-          {/* Aggregated Portfolio Summary */}
           <AggregatedSummary summaries={summaries} />
-
-          {/* Per-Chain Summaries */}
           <div className="space-y-6">
             <h2 className="text-xl font-semibold">Positions by Chain</h2>
             {summaries.map((summary) => (
