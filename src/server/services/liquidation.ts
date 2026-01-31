@@ -58,6 +58,7 @@ const SYMBOL_TO_COINGECKO: Record<string, string> = {
 };
 
 // GraphQL query for user reserves with liquidation data
+// Note: Aave V3 subgraph uses reserveLiquidationThreshold, not liquidationThreshold
 const USER_RESERVES_QUERY = gql`
   query GetUserReserves($user: String!) {
     userReserves(where: { user: $user }) {
@@ -70,7 +71,6 @@ const USER_RESERVES_QUERY = gql`
         name
         decimals
         underlyingAsset
-        liquidationThreshold
         baseLTVasCollateral
         reserveLiquidationThreshold
         reserveLiquidationBonus
@@ -93,7 +93,6 @@ interface GraphReserve {
   name: string;
   decimals: number;
   underlyingAsset: string;
-  liquidationThreshold: string;
   baseLTVasCollateral: string;
   reserveLiquidationThreshold: string;
   reserveLiquidationBonus: string;
@@ -252,7 +251,7 @@ export async function getWalletRiskSummary(
     }
 
     const liquidationThreshold = parseLiquidationThreshold(
-      reserve.liquidationThreshold || reserve.reserveLiquidationThreshold
+      reserve.reserveLiquidationThreshold
     );
     const maxLtv = parseLiquidationThreshold(reserve.baseLTVasCollateral);
 
