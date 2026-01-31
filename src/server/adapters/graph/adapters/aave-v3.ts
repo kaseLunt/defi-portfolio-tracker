@@ -80,41 +80,6 @@ interface UserReservesResponse {
   userReserves: GraphUserReserve[];
 }
 
-// Token symbol to CoinGecko ID mapping for common tokens
-const SYMBOL_TO_COINGECKO: Record<string, string> = {
-  WETH: "weth",
-  ETH: "ethereum",
-  USDC: "usd-coin",
-  "USDC.e": "usd-coin",
-  USDT: "tether",
-  DAI: "dai",
-  WBTC: "wrapped-bitcoin",
-  wstETH: "wrapped-steth",
-  stETH: "staked-ether",
-  rETH: "rocket-pool-eth",
-  cbETH: "coinbase-wrapped-staked-eth",
-  USDe: "ethena-usde",
-  sUSDe: "ethena-staked-usde",
-  WMATIC: "wmatic",
-  MATIC: "matic-network",
-  weETH: "wrapped-eeth",
-  ezETH: "renzo-restaked-eth",
-  GHO: "gho",
-  LUSD: "liquity-usd",
-  FRAX: "frax",
-  MKR: "maker",
-  LINK: "chainlink",
-  UNI: "uniswap",
-  AAVE: "aave",
-  CRV: "curve-dao-token",
-  SNX: "havven",
-  BAL: "balancer",
-  LDO: "lido-dao",
-  RPL: "rocket-pool",
-  ENS: "ethereum-name-service",
-  "1INCH": "1inch",
-};
-
 /**
  * Aave V3 Graph Adapter
  * Uses The Graph for fast position queries with RPC fallback
@@ -191,8 +156,7 @@ export class AaveV3GraphAdapter extends BaseAdapter {
       const underlyingAsset = reserve.underlyingAsset as Address;
 
       // Get CoinGecko ID for price lookup
-      const coingeckoId =
-        SYMBOL_TO_COINGECKO[symbol] || COINGECKO_IDS[symbol] || undefined;
+      const coingeckoId = COINGECKO_IDS[symbol];
 
       // Supply position (aToken balance)
       const aTokenBalance = BigInt(userReserve.currentATokenBalance);

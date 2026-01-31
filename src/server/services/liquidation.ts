@@ -27,36 +27,6 @@ import {
 } from "@/server/adapters/graph/client";
 import { getPrice, COINGECKO_IDS } from "./price";
 
-// Token symbol to CoinGecko ID mapping (extends base mapping for Aave-specific tokens)
-const SYMBOL_TO_COINGECKO: Record<string, string> = {
-  WETH: "weth",
-  ETH: "ethereum",
-  USDC: "usd-coin",
-  "USDC.e": "usd-coin",
-  USDT: "tether",
-  DAI: "dai",
-  WBTC: "wrapped-bitcoin",
-  wstETH: "wrapped-steth",
-  stETH: "staked-ether",
-  rETH: "rocket-pool-eth",
-  cbETH: "coinbase-wrapped-staked-eth",
-  USDe: "ethena-usde",
-  sUSDe: "ethena-staked-usde",
-  WMATIC: "wmatic",
-  MATIC: "matic-network",
-  weETH: "wrapped-eeth",
-  ezETH: "renzo-restaked-eth",
-  GHO: "gho",
-  LUSD: "liquity-usd",
-  FRAX: "frax",
-  MKR: "maker",
-  LINK: "chainlink",
-  UNI: "uniswap",
-  AAVE: "aave",
-  CRV: "curve-dao-token",
-  ...COINGECKO_IDS,
-};
-
 // GraphQL query for user reserves with liquidation data
 // Note: Aave V3 subgraph uses reserveLiquidationThreshold, not liquidationThreshold
 const USER_RESERVES_QUERY = gql`
@@ -116,7 +86,7 @@ interface UserReservesResponse {
  * Get the CoinGecko ID for a token symbol
  */
 function getCoingeckoId(symbol: string): string | undefined {
-  return SYMBOL_TO_COINGECKO[symbol] || COINGECKO_IDS[symbol];
+  return COINGECKO_IDS[symbol];
 }
 
 /**
@@ -176,6 +146,26 @@ interface DebtData {
   amount: number;
   rawAmount: bigint;
   valueUsd: number;
+}
+
+/**
+ * Build a summary of debt positions for display
+ */
+function buildDebtSummary(
+  debts: DebtData[],
+  totalDebtUsd: number
+): { token: string; amount: string; valueUsd: number } {
+  if (debts.length === 0) {
+    return { token: "NONE", amount: "0", valueUsd: 0 };
+  }
+  if (debts.length === 1) {
+    return {
+      token: debts[0].symbol,
+      amount: debts[0].rawAmount.toString(),
+      valueUsd: debts[0].valueUsd,
+    };
+  }
+  return { token: "MULTI", amount: "0", valueUsd: totalDebtUsd };
 }
 
 /**
@@ -310,12 +300,7 @@ export async function getWalletRiskSummary(
   }
 
   // Build debt summary for positions
-  const debtSummary =
-    debts.length === 0
-      ? { token: "NONE", amount: "0", valueUsd: 0 }
-      : debts.length === 1
-        ? { token: debts[0].symbol, amount: debts[0].rawAmount.toString(), valueUsd: debts[0].valueUsd }
-        : { token: "MULTI", amount: "0", valueUsd: totalDebtUsd };
+  const debtSummary = buildDebtSummary(debts, totalDebtUsd);
 
   // Build positions with risk contribution and per-collateral liquidation prices
   const positions: LendingPosition[] = [];

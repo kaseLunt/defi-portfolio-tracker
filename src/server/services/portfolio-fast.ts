@@ -12,8 +12,19 @@ import type { Address } from "viem";
 import { SUPPORTED_CHAINS, type SupportedChainId } from "@/lib/constants";
 import { adapterRegistry } from "../adapters/registry";
 import type { Position } from "../adapters/types";
-import { getPrices, COINGECKO_IDS } from "./price";
+import { getPrices } from "./price";
 import { getFromCache, setInCache } from "../lib/redis";
+import {
+  enrichPositionsWithPrices,
+  calculateTotalValue,
+  calculateYield24h,
+  calculateWeightedApy,
+  groupByProtocol,
+  filterDustPositions,
+  sortByValue,
+  MIN_POSITION_VALUE_USD,
+  type EnrichedPosition,
+} from "./portfolio-utils";
 import Redis from "ioredis";
 
 // Get Redis client for sorted set operations
@@ -42,9 +53,6 @@ import { getTokenBalances, type TokenBalance } from "./balances";
 const TOKEN_CACHE_TTL = 300; // 5 minutes - token balances change more frequently
 const DEFI_CACHE_TTL = 900; // 15 minutes - DeFi positions are relatively stable
 const STALE_THRESHOLD = 180; // Consider stale after 3 minutes (triggers background refresh)
-
-// Minimum USD value to display
-const MIN_POSITION_VALUE_USD = 1;
 
 // Active wallets set (for background pre-warming)
 const ACTIVE_WALLETS_KEY = "active-wallets";
@@ -287,11 +295,8 @@ function formatTokenResult(
   };
 }
 
-export interface EnrichedPosition extends Position {
-  priceUsd: number;
-  balanceUsd: number;
-  value24hChange?: number;
-}
+// Re-export EnrichedPosition for backwards compatibility
+export type { EnrichedPosition } from "./portfolio-utils";
 
 export interface DefiPositionsResult {
   positions: EnrichedPosition[];
@@ -434,95 +439,23 @@ async function enrichAndFormatPositions(
   // Fetch prices
   const prices = await getPrices(Array.from(coingeckoIds));
 
-  // Enrich positions with USD values
-  const enrichedPositions: EnrichedPosition[] = positions.map(position => {
-    const priceData = position.coingeckoId
-      ? prices.get(position.coingeckoId)
-      : undefined;
-    const priceUsd = priceData?.priceUsd ?? 0;
-    const balanceUsd = position.balance * priceUsd;
+  // Enrich, sort, and filter using shared utilities
+  const enrichedPositions = enrichPositionsWithPrices(positions, prices);
+  const sortedPositions = sortByValue(enrichedPositions);
+  const filtered = filterDustPositions(sortedPositions);
 
-    return {
-      ...position,
-      priceUsd,
-      balanceUsd,
-      value24hChange: priceData?.change24hPct ?? undefined,
-    };
-  });
-
-  // Sort by USD value descending
-  enrichedPositions.sort((a, b) => b.balanceUsd - a.balanceUsd);
-
-  // Filter dust
-  const filtered = enrichedPositions.filter(p => Math.abs(p.balanceUsd) >= MIN_POSITION_VALUE_USD);
-
-  // Calculate totals (subtract borrow positions as they are debt)
-  const totalValueUsd = filtered.reduce((sum, p) => {
-    if (p.positionType === "borrow") {
-      return sum - p.balanceUsd;
-    }
-    return sum + p.balanceUsd;
-  }, 0);
-
-  // Calculate 24h yield
-  const totalYield24h = filtered.reduce((sum, p) => {
-    if (p.apy && p.balanceUsd > 0) {
-      const dailyYield = (p.balanceUsd * (p.apy / 100)) / 365;
-      if (p.positionType === "borrow") {
-        return sum - dailyYield;
-      }
-      return sum + dailyYield;
-    }
-    return sum;
-  }, 0);
-
-  // Calculate weighted average APY
-  const supplyPositions = filtered.filter(p => p.positionType !== "borrow");
-  const totalSupplyValue = supplyPositions.reduce((sum, p) => sum + p.balanceUsd, 0);
-  const weightedApySum = supplyPositions.reduce((sum, p) => {
-    if (p.apy && p.balanceUsd > 0) {
-      return sum + p.apy * p.balanceUsd;
-    }
-    return sum;
-  }, 0);
-  const avgApy = totalSupplyValue > 0 ? weightedApySum / totalSupplyValue : 0;
-
-  // Group by protocol
-  const protocolMap = new Map<string, {
-    protocol: string;
-    name: string;
-    category: string;
-    positions: EnrichedPosition[];
-    totalValueUsd: number;
-  }>();
-
-  for (const position of filtered) {
-    const adapter = adapterRegistry.get(position.protocol);
-    const existing = protocolMap.get(position.protocol);
-    const valueContribution = position.positionType === "borrow"
-      ? -position.balanceUsd
-      : position.balanceUsd;
-
-    if (existing) {
-      existing.positions.push(position);
-      existing.totalValueUsd += valueContribution;
-    } else {
-      protocolMap.set(position.protocol, {
-        protocol: position.protocol,
-        name: adapter?.name ?? position.protocol,
-        category: adapter?.category ?? "unknown",
-        positions: [position],
-        totalValueUsd: valueContribution,
-      });
-    }
-  }
+  // Calculate aggregates using shared utilities
+  const totalValueUsd = calculateTotalValue(filtered);
+  const totalYield24h = calculateYield24h(filtered);
+  const avgApy = calculateWeightedApy(filtered);
+  const byProtocol = groupByProtocol(filtered);
 
   return {
     positions: filtered,
     totalValueUsd,
     totalYield24h,
     avgApy,
-    byProtocol: Array.from(protocolMap.values()).sort((a, b) => b.totalValueUsd - a.totalValueUsd),
+    byProtocol,
     fetchedAt: new Date().toISOString(),
     stale,
     refreshing,

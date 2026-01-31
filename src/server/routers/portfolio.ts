@@ -248,29 +248,17 @@ export const portfolioRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      // Calculate start date based on timeframe
-      const startDate = new Date();
+      // Timeframe to milliseconds offset
+      const TIMEFRAME_MS: Record<string, number> = {
+        "24h": 24 * 60 * 60 * 1000,
+        "7d": 7 * 24 * 60 * 60 * 1000,
+        "30d": 30 * 24 * 60 * 60 * 1000,
+        "90d": 90 * 24 * 60 * 60 * 1000,
+        "1y": 365 * 24 * 60 * 60 * 1000,
+        "all": Date.now() - new Date(2020, 0, 1).getTime(),
+      };
 
-      switch (input.timeframe) {
-        case "24h":
-          startDate.setHours(startDate.getHours() - 24);
-          break;
-        case "7d":
-          startDate.setDate(startDate.getDate() - 7);
-          break;
-        case "30d":
-          startDate.setDate(startDate.getDate() - 30);
-          break;
-        case "90d":
-          startDate.setDate(startDate.getDate() - 90);
-          break;
-        case "1y":
-          startDate.setFullYear(startDate.getFullYear() - 1);
-          break;
-        case "all":
-          startDate.setFullYear(2020);
-          break;
-      }
+      const startDate = new Date(Date.now() - TIMEFRAME_MS[input.timeframe]);
 
       // Get positions for this user
       const positions = await ctx.prisma.position.findMany({

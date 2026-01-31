@@ -20,7 +20,9 @@ interface PriceCacheEntry {
 
 const memoryCache = new Map<string, PriceCacheEntry>();
 
-// Common token coingecko IDs mapping
+// Canonical token symbol to CoinGecko ID mapping
+// This is the SINGLE SOURCE OF TRUTH for all token->coingecko mappings
+// Used by: price service, liquidation service, graph adapters
 export const COINGECKO_IDS: Record<string, string> = {
   // Native tokens
   ETH: "ethereum",
@@ -30,9 +32,12 @@ export const COINGECKO_IDS: Record<string, string> = {
 
   // Stablecoins
   USDC: "usd-coin",
+  "USDC.e": "usd-coin", // Bridged USDC on L2s
   USDT: "tether",
   DAI: "dai",
   FRAX: "frax",
+  GHO: "gho",
+  LUSD: "liquity-usd",
 
   // Liquid staking tokens
   stETH: "staked-ether",
@@ -41,13 +46,22 @@ export const COINGECKO_IDS: Record<string, string> = {
   cbETH: "coinbase-wrapped-staked-eth",
   eETH: "ether-fi-staked-eth",
   weETH: "wrapped-eeth",
+  ezETH: "renzo-restaked-eth",
 
-  // DeFi tokens
+  // DeFi governance tokens
   AAVE: "aave",
   COMP: "compound-governance-token",
   UNI: "uniswap",
   LDO: "lido-dao",
   ETHFI: "ether-fi",
+  MKR: "maker",
+  CRV: "curve-dao-token",
+  SNX: "havven",
+  BAL: "balancer",
+  RPL: "rocket-pool",
+  LINK: "chainlink",
+  ENS: "ethereum-name-service",
+  "1INCH": "1inch",
 
   // Bitcoin
   BTC: "bitcoin",

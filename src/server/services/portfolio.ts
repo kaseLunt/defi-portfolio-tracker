@@ -3,24 +3,26 @@ import type { PrismaClient } from "@prisma/client";
 import { SUPPORTED_CHAINS, type SupportedChainId } from "@/lib/constants";
 import { adapterRegistry } from "../adapters/registry";
 import type { Position } from "../adapters/types";
-import { getPrices, COINGECKO_IDS } from "./price";
+import { getPrices } from "./price";
 import { getFromCache, setInCache } from "../lib/redis";
 import { getTokenBalances, type TokenBalance } from "./balances";
+import {
+  enrichPositionsWithPrices,
+  calculateTotalValue,
+  calculateYield24h,
+  calculateWeightedApy,
+  groupByProtocol,
+  filterDustPositions,
+  sortByValue,
+  MIN_POSITION_VALUE_USD,
+  type EnrichedPosition,
+} from "./portfolio-utils";
 
 // Cache TTL for portfolio data (5 minutes - fetching is expensive)
 const PORTFOLIO_CACHE_TTL = 300;
 
-// Minimum USD value to display a position (filter out dust)
-const MIN_POSITION_VALUE_USD = 1;
-
-/**
- * Portfolio position with USD values
- */
-export interface EnrichedPosition extends Position {
-  priceUsd: number;
-  balanceUsd: number;
-  value24hChange?: number;
-}
+// Re-export for backwards compatibility
+export type { EnrichedPosition } from "./portfolio-utils";
 
 /**
  * Aggregated portfolio data
@@ -128,42 +130,18 @@ export async function getPortfolio(
   const prices = await getPrices(Array.from(coingeckoIds));
   console.log(`[Portfolio] Prices took ${Date.now() - priceStart}ms for ${coingeckoIds.size} tokens`);
 
-  // Enrich positions with USD values
-  const enrichedPositions: EnrichedPosition[] = positions.map((position) => {
-    const priceData = position.coingeckoId
-      ? prices.get(position.coingeckoId)
-      : undefined;
-    const priceUsd = priceData?.priceUsd ?? 0;
-    const balanceUsd = position.balance * priceUsd;
-
-    return {
-      ...position,
-      priceUsd,
-      balanceUsd,
-      value24hChange: priceData?.change24hPct ?? undefined,
-    };
-  });
-
-  // Sort by USD value descending
-  enrichedPositions.sort((a, b) => b.balanceUsd - a.balanceUsd);
-
-  // Filter out dust positions (worth less than $1)
-  const filteredPositions = enrichedPositions.filter(
-    (p) => Math.abs(p.balanceUsd) >= MIN_POSITION_VALUE_USD
-  );
+  // Enrich, sort, and filter positions using shared utilities
+  const enrichedPositions = enrichPositionsWithPrices(positions, prices);
+  const sortedPositions = sortByValue(enrichedPositions);
+  const filteredPositions = filterDustPositions(sortedPositions);
 
   // Filter out dust token balances
   const filteredTokenBalances = tokenBalances.filter(
     (b) => b.quoteUsd >= MIN_POSITION_VALUE_USD
   );
 
-  // Calculate DeFi position totals (subtract borrow positions as they are debt)
-  const totalDefiValueUsd = enrichedPositions.reduce((sum, p) => {
-    if (p.positionType === "borrow") {
-      return sum - p.balanceUsd; // Debt reduces total value
-    }
-    return sum + p.balanceUsd;
-  }, 0);
+  // Calculate DeFi position totals using shared utility
+  const totalDefiValueUsd = calculateTotalValue(enrichedPositions);
 
   // Calculate token balance total (from GoldRush - this is the primary source of truth for raw token holdings)
   const totalTokenValueUsd = tokenBalances.reduce((sum, b) => sum + b.quoteUsd, 0);
@@ -173,63 +151,12 @@ export async function getPortfolio(
   // DeFi positions may have additional yield-bearing positions not in GoldRush
   const totalValueUsd = Math.max(totalTokenValueUsd, totalDefiValueUsd);
 
-  // Calculate 24h yield (APY / 365) - only for supply positions
-  // Borrow positions cost money, so they reduce yield
-  const totalYield24h = enrichedPositions.reduce((sum, p) => {
-    if (p.apy && p.balanceUsd > 0) {
-      const dailyYield = (p.balanceUsd * (p.apy / 100)) / 365;
-      if (p.positionType === "borrow") {
-        return sum - dailyYield; // Borrowing costs money
-      }
-      return sum + dailyYield;
-    }
-    return sum;
-  }, 0);
+  // Calculate yield and APY using shared utilities
+  const totalYield24h = calculateYield24h(enrichedPositions);
+  const avgApy = calculateWeightedApy(enrichedPositions);
 
-  // Calculate weighted average APY (only for non-borrow positions)
-  const supplyPositions = enrichedPositions.filter(p => p.positionType !== "borrow");
-  const totalSupplyValue = supplyPositions.reduce((sum, p) => sum + p.balanceUsd, 0);
-  const weightedApySum = supplyPositions.reduce((sum, p) => {
-    if (p.apy && p.balanceUsd > 0) {
-      return sum + p.apy * p.balanceUsd;
-    }
-    return sum;
-  }, 0);
-  const avgApy = totalSupplyValue > 0 ? weightedApySum / totalSupplyValue : 0;
-
-  // Group by protocol
-  const protocolMap = new Map<
-    string,
-    {
-      protocol: string;
-      name: string;
-      category: string;
-      positions: EnrichedPosition[];
-      totalValueUsd: number;
-    }
-  >();
-
-  for (const position of filteredPositions) {
-    const adapter = adapterRegistry.get(position.protocol);
-    const existing = protocolMap.get(position.protocol);
-    // Debt reduces protocol total value
-    const valueContribution = position.positionType === "borrow"
-      ? -position.balanceUsd
-      : position.balanceUsd;
-
-    if (existing) {
-      existing.positions.push(position);
-      existing.totalValueUsd += valueContribution;
-    } else {
-      protocolMap.set(position.protocol, {
-        protocol: position.protocol,
-        name: adapter?.name ?? position.protocol,
-        category: adapter?.category ?? "unknown",
-        positions: [position],
-        totalValueUsd: valueContribution,
-      });
-    }
-  }
+  // Group by protocol using shared utility
+  const byProtocol = groupByProtocol(filteredPositions);
 
   // Group by chain - combine DeFi positions and token balances
   const chainMap = new Map<SupportedChainId, number>();
@@ -259,9 +186,7 @@ export async function getPortfolio(
     totalDefiValueUsd,
     totalYield24h,
     avgApy,
-    byProtocol: Array.from(protocolMap.values()).sort(
-      (a, b) => b.totalValueUsd - a.totalValueUsd
-    ),
+    byProtocol,
     byChain,
   };
 
